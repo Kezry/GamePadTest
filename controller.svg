@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <!-- 控制器主体 -->
+  <path d="M400 100 C300 100, 150 150, 100 250 C50 350, 50 400, 150 450 C250 500, 350 450, 400 400 C450 450, 550 500, 650 450 C750 400, 750 350, 700 250 C650 150, 500 100, 400 100" fill="#1F1F1F" stroke="#000" stroke-width="2"/>
+  
+  <!-- 左摇杆区域 -->
+  <circle cx="200" cy="200" r="40" fill="#2A2A2A" stroke="#000" stroke-width="1"/>
+  
+  <!-- 右摇杆区域 -->
+  <circle cx="500" cy="300" r="40" fill="#2A2A2A" stroke="#000" stroke-width="1"/>
+  
+  <!-- 方向键区域 -->
+  <rect x="150" y="300" width="80" height="80" rx="5" ry="5" fill="#2A2A2A" stroke="#000" stroke-width="1"/>
+  
+  <!-- ABXY按钮区域 -->
+  <circle cx="600" cy="200" r="60" fill="#2A2A2A" stroke="#000" stroke-width="1"/>
+  
+  <!-- 中央区域 -->
+  <rect x="300" y="200" width="200" height="100" rx="50" ry="50" fill="#2A2A2A" stroke="#000" stroke-width="1"/>
+  
+  <!-- 左右扳机区域提示 -->
+  <path d="M150 120 C170 100, 200 90, 250 100" fill="none" stroke="#444" stroke-width="2"/>
+  <path d="M650 120 C630 100, 600 90, 550 100" fill="none" stroke="#444" stroke-width="2"/>
+</svg>
