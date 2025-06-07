@@ -120,6 +120,57 @@ function setupVibrationControls() {
     const rightTriggerValue = document.getElementById('rightTriggerValue');
     const applyVibration = document.getElementById('applyVibration');
     const stopVibration = document.getElementById('stopVibration');
+    const vibrationPreset = document.getElementById('vibrationPreset');
+    const applyPreset = document.getElementById('applyPreset');
+    
+    // 震动预设配置
+    const presets = {
+        custom: null, // 自定义，不做任何改变
+        weak: {
+            leftMotor: 0.2,
+            rightMotor: 0.1,
+            leftTrigger: 0,
+            rightTrigger: 0,
+            duration: 1000
+        },
+        medium: {
+            leftMotor: 0.5,
+            rightMotor: 0.3,
+            leftTrigger: 0.2,
+            rightTrigger: 0.2,
+            duration: 1000
+        },
+        strong: {
+            leftMotor: 1.0,
+            rightMotor: 0.8,
+            leftTrigger: 0.5,
+            rightTrigger: 0.5,
+            duration: 1000
+        },
+        pulse: {
+            type: 'pulse',
+            intensity: 0.8,
+            pulseCount: 3,
+            pulseDuration: 200,
+            pauseDuration: 100
+        },
+        alternating: {
+            type: 'alternating',
+            leftRight: true,
+            intensity: 0.7,
+            switchDuration: 200,
+            totalDuration: 2000
+        },
+        trigger: {
+            type: 'trigger',
+            leftTrigger: 0.8,
+            rightTrigger: 0.8,
+            duration: 1000
+        }
+    };
+    
+    // 震动效果定时器
+    let vibrationEffectTimer = null;
     
     leftMotor.addEventListener('input', () => {
         leftMotorValue.textContent = leftMotor.value;
@@ -137,54 +188,310 @@ function setupVibrationControls() {
         rightTriggerValue.textContent = rightTrigger.value;
     });
     
-    applyVibration.addEventListener('click', () => {
-        if (gamepad && gamepad.vibrationActuator) {
-            // 标准震动
-            const weakMagnitude = parseFloat(leftMotor.value);
-            const strongMagnitude = parseFloat(rightMotor.value);
-            
-            gamepad.vibrationActuator.playEffect('dual-rumble', {
-                startDelay: 0,
-                duration: 1000,
-                weakMagnitude,
-                strongMagnitude
-            });
-            
-            // 尝试扳机震动 (Xbox One 手柄的扳机震动需要特殊支持)
-            try {
-                if (gamepad.hapticActuators && gamepad.hapticActuators.length >= 2) {
-                    const leftTriggerValue = parseFloat(leftTrigger.value);
-                    const rightTriggerValue = parseFloat(rightTrigger.value);
-                    
-                    // 假设第一个和第二个触觉执行器是左右扳机
-                    gamepad.hapticActuators[0].pulse(leftTriggerValue, 1000);
-                    gamepad.hapticActuators[1].pulse(rightTriggerValue, 1000);
-                }
-            } catch (e) {
-                console.log('扳机震动不受支持:', e);
-            }
-        }
-    });
+    // 应用震动函数 - 基础版本
+    function applyVibrationEffect(strongMag = null, weakMag = null, leftTrig = null, rightTrig = null, duration = 1000) {
+        if (!gamepad || !gamepad.vibrationActuator) return;
+        
+        // 使用传入的值或从滑块获取值
+        const strongMagnitude = strongMag !== null ? strongMag : parseFloat(leftMotor.value);
+        const weakMagnitude = weakMag !== null ? weakMag : parseFloat(rightMotor.value);
+        const leftTriggerMag = leftTrig !== null ? leftTrig : parseFloat(leftTrigger.value);
+        const rightTriggerMag = rightTrig !== null ? rightTrig : parseFloat(rightTrigger.value);
+        
+        // 应用马达震动
+        gamepad.vibrationActuator.playEffect('dual-rumble', {
+            startDelay: 0,
+            duration: duration,
+            weakMagnitude,
+            strongMagnitude
+        });
+        
+        // 尝试扳机震动 - 使用多种可能的API
+        applyTriggerVibration(leftTriggerMag, rightTriggerMag, duration);
+    }
     
-    stopVibration.addEventListener('click', () => {
-        if (gamepad && gamepad.vibrationActuator) {
+    // 扳机震动专用函数
+    function applyTriggerVibration(leftMag, rightMag, duration = 1000) {
+        if (!gamepad) return;
+        
+        try {
+            // 方法1: 使用hapticActuators数组
+            if (gamepad.hapticActuators && gamepad.hapticActuators.length > 0) {
+                // 如果有两个或更多执行器，假设第一个是左扳机，第二个是右扳机
+                if (gamepad.hapticActuators.length >= 2) {
+                    gamepad.hapticActuators[0].pulse(leftMag, duration);
+                    gamepad.hapticActuators[1].pulse(rightMag, duration);
+                } else {
+                    // 如果只有一个执行器，尝试使用它
+                    gamepad.hapticActuators[0].pulse(Math.max(leftMag, rightMag), duration);
+                }
+                
+                // 尝试按类型和位置查找执行器
+                for (let i = 0; i < gamepad.hapticActuators.length; i++) {
+                    const actuator = gamepad.hapticActuators[i];
+                    if (actuator.type === 'trigger' || actuator.type === 'vibration') {
+                        if (actuator.position === 'left') {
+                            actuator.pulse(leftMag, duration);
+                        } else if (actuator.position === 'right') {
+                            actuator.pulse(rightMag, duration);
+                        } else {
+                            // 如果没有指定位置，尝试使用最大强度
+                            actuator.pulse(Math.max(leftMag, rightMag), duration);
+                        }
+                    }
+                }
+            }
+            
+            // 方法2: 尝试使用vibrationActuators
+            if (gamepad.vibrationActuators && gamepad.vibrationActuators.length > 0) {
+                for (let i = 0; i < gamepad.vibrationActuators.length; i++) {
+                    const actuator = gamepad.vibrationActuators[i];
+                    if (actuator.type === 'trigger' || actuator.type === 'vibration') {
+                        if (actuator.position === 'left') {
+                            actuator.playEffect('dual-rumble', {
+                                startDelay: 0,
+                                duration: duration,
+                                strongMagnitude: leftMag
+                            });
+                        } else if (actuator.position === 'right') {
+                            actuator.playEffect('dual-rumble', {
+                                startDelay: 0,
+                                duration: duration,
+                                strongMagnitude: rightMag
+                            });
+                        } else {
+                            // 如果没有指定位置，尝试使用最大强度
+                            actuator.playEffect('dual-rumble', {
+                                startDelay: 0,
+                                duration: duration,
+                                strongMagnitude: Math.max(leftMag, rightMag)
+                            });
+                        }
+                    }
+                }
+            }
+            
+            // 方法3: 尝试使用GamepadHapticActuator API (Xbox控制器)
+            if (gamepad.hapticActuators && gamepad.hapticActuators.some(a => a.type === 'gamepad')) {
+                const gamepadActuator = gamepad.hapticActuators.find(a => a.type === 'gamepad');
+                if (gamepadActuator) {
+                    gamepadActuator.pulse(Math.max(leftMag, rightMag), duration);
+                }
+            }
+            
+            // 方法4: 尝试使用触发器特定API (如果存在)
+            if (typeof gamepad.setTriggerVibration === 'function') {
+                gamepad.setTriggerVibration(leftMag, rightMag, duration);
+            }
+            
+            // 方法5: 尝试使用DualSense特定API (如果存在)
+            if (typeof gamepad.setDualSenseTriggerEffect === 'function') {
+                gamepad.setDualSenseTriggerEffect('vibration', {
+                    left: { intensity: leftMag, duration: duration },
+                    right: { intensity: rightMag, duration: duration }
+                });
+            }
+        } catch (e) {
+            console.log('扳机震动尝试失败:', e);
+        }
+    }
+    
+    // 应用脉冲震动
+    function applyPulseEffect(preset) {
+        if (!gamepad || !gamepad.vibrationActuator) return;
+        
+        let pulseCount = 0;
+        const maxPulses = preset.pulseCount || 3;
+        
+        function doPulse() {
+            if (pulseCount >= maxPulses) {
+                clearTimeout(vibrationEffectTimer);
+                vibrationEffectTimer = null;
+                return;
+            }
+            
+            // 应用震动
+            applyVibrationEffect(preset.intensity, preset.intensity, 0, 0, preset.pulseDuration);
+            
+            pulseCount++;
+            
+            // 设置下一次脉冲
+            vibrationEffectTimer = setTimeout(doPulse, preset.pulseDuration + preset.pauseDuration);
+        }
+        
+        // 开始脉冲序列
+        doPulse();
+    }
+    
+    // 应用交替震动
+    function applyAlternatingEffect(preset) {
+        if (!gamepad || !gamepad.vibrationActuator) return;
+        
+        let isLeft = true;
+        const startTime = Date.now();
+        
+        function doAlternate() {
+            // 检查是否已经达到总持续时间
+            if (Date.now() - startTime >= preset.totalDuration) {
+                clearTimeout(vibrationEffectTimer);
+                vibrationEffectTimer = null;
+                return;
+            }
+            
+            if (preset.leftRight) {
+                // 左右交替
+                if (isLeft) {
+                    applyVibrationEffect(preset.intensity, 0, 0, 0, preset.switchDuration);
+                } else {
+                    applyVibrationEffect(0, preset.intensity, 0, 0, preset.switchDuration);
+                }
+            } else {
+                // 强弱交替
+                if (isLeft) {
+                    applyVibrationEffect(preset.intensity, preset.intensity/2, 0, 0, preset.switchDuration);
+                } else {
+                    applyVibrationEffect(preset.intensity/2, preset.intensity, 0, 0, preset.switchDuration);
+                }
+            }
+            
+            isLeft = !isLeft;
+            
+            // 设置下一次切换
+            vibrationEffectTimer = setTimeout(doAlternate, preset.switchDuration);
+        }
+        
+        // 开始交替序列
+        doAlternate();
+    }
+    
+    // 停止所有震动
+    function stopAllVibration() {
+        if (!gamepad) return;
+        
+        // 清除任何正在进行的震动效果定时器
+        if (vibrationEffectTimer) {
+            clearTimeout(vibrationEffectTimer);
+            vibrationEffectTimer = null;
+        }
+        
+        // 停止标准震动
+        if (gamepad.vibrationActuator) {
             gamepad.vibrationActuator.playEffect('dual-rumble', {
                 startDelay: 0,
                 duration: 1,
                 weakMagnitude: 0,
                 strongMagnitude: 0
             });
-            
-            try {
-                if (gamepad.hapticActuators && gamepad.hapticActuators.length >= 2) {
-                    gamepad.hapticActuators[0].pulse(0, 10);
-                    gamepad.hapticActuators[1].pulse(0, 10);
-                }
-            } catch (e) {
-                console.log('停止扳机震动失败:', e);
-            }
         }
+        
+        try {
+            // 停止所有可能的震动执行器
+            if (gamepad.hapticActuators) {
+                for (let i = 0; i < gamepad.hapticActuators.length; i++) {
+                    gamepad.hapticActuators[i].pulse(0, 10);
+                }
+            }
+            
+            if (gamepad.vibrationActuators) {
+                for (let i = 0; i < gamepad.vibrationActuators.length; i++) {
+                    gamepad.vibrationActuators[i].playEffect('dual-rumble', {
+                        startDelay: 0,
+                        duration: 1,
+                        weakMagnitude: 0,
+                        strongMagnitude: 0
+                    });
+                }
+            }
+            
+            // 尝试使用触发器特定API (如果存在)
+            if (typeof gamepad.setTriggerVibration === 'function') {
+                gamepad.setTriggerVibration(0, 0, 10);
+            }
+            
+            // 尝试使用DualSense特定API (如果存在)
+            if (typeof gamepad.setDualSenseTriggerEffect === 'function') {
+                gamepad.setDualSenseTriggerEffect('off', {});
+            }
+        } catch (e) {
+            console.log('停止震动失败:', e);
+        }
+    }
+    
+    // 应用预设
+    function applyPresetEffect(presetName) {
+        // 先停止所有震动
+        stopAllVibration();
+        
+        const preset = presets[presetName];
+        if (!preset) return; // 自定义模式或无效预设
+        
+        // 根据预设类型应用不同的震动效果
+        switch (presetName) {
+            case 'weak':
+            case 'medium':
+            case 'strong':
+                // 更新滑块值
+                leftMotor.value = preset.leftMotor;
+                rightMotor.value = preset.rightMotor;
+                leftTrigger.value = preset.leftTrigger;
+                rightTrigger.value = preset.rightTrigger;
+                
+                // 更新显示值
+                leftMotorValue.textContent = preset.leftMotor;
+                rightMotorValue.textContent = preset.rightMotor;
+                leftTriggerValue.textContent = preset.leftTrigger;
+                rightTriggerValue.textContent = preset.rightTrigger;
+                
+                // 应用震动
+                applyVibrationEffect(
+                    preset.leftMotor,
+                    preset.rightMotor,
+                    preset.leftTrigger,
+                    preset.rightTrigger,
+                    preset.duration
+                );
+                break;
+                
+            case 'pulse':
+                applyPulseEffect(preset);
+                break;
+                
+            case 'alternating':
+                applyAlternatingEffect(preset);
+                break;
+                
+            case 'trigger':
+                // 更新滑块值
+                leftTrigger.value = preset.leftTrigger;
+                rightTrigger.value = preset.rightTrigger;
+                
+                // 更新显示值
+                leftTriggerValue.textContent = preset.leftTrigger;
+                rightTriggerValue.textContent = preset.rightTrigger;
+                
+                // 应用扳机震动
+                applyTriggerVibration(preset.leftTrigger, preset.rightTrigger, preset.duration);
+                break;
+        }
+    }
+    
+    // 应用震动按钮点击事件
+    applyVibration.addEventListener('click', () => {
+        // 停止之前的震动效果
+        stopAllVibration();
+        
+        // 应用自定义震动
+        applyVibrationEffect();
     });
+    
+    // 应用预设按钮点击事件
+    applyPreset.addEventListener('click', () => {
+        const selectedPreset = vibrationPreset.value;
+        applyPresetEffect(selectedPreset);
+    });
+    
+    // 停止震动按钮点击事件
+    stopVibration.addEventListener('click', stopAllVibration);
 }
 
 // 设置监测控制
@@ -650,6 +957,12 @@ function updateButtonStatus() {
                 element = document.querySelector(`#${elementId}`);
             }
             
+            // 如果仍然没有找到元素，可能是特殊按钮（L5、R5、Back1、Back2），尝试使用querySelector
+            if (!element && (elementId === 'L5' || elementId === 'R5' || 
+                           elementId === 'Back1' || elementId === 'Back2')) {
+                element = document.querySelector(`#${elementId}`);
+            }
+            
             if (element) {
                 const pressed = gamepad.buttons[i].pressed;
                 const value = gamepad.buttons[i].value;
@@ -712,6 +1025,587 @@ function getRandomColor() {
     return color;
 }
 
+// 摇杆死区测试
+let deadzoneTestActive = false;
+let deadzoneAnimationId = null;
+
+function setupDeadzoneTest() {
+    const startDeadzoneTest = document.getElementById('startDeadzoneTest');
+    const stopDeadzoneTest = document.getElementById('stopDeadzoneTest');
+    const deadzoneStatus = document.getElementById('deadzoneStatus');
+    const leftStickCanvas = document.getElementById('leftStickCanvas');
+    const rightStickCanvas = document.getElementById('rightStickCanvas');
+    const leftStickInfo = document.getElementById('leftStickInfo');
+    const rightStickInfo = document.getElementById('rightStickInfo');
+    
+    // 初始化画布
+    const leftCtx = leftStickCanvas.getContext('2d');
+    const rightCtx = rightStickCanvas.getContext('2d');
+    
+    // 绘制摇杆位置的函数
+    function drawStickPosition(ctx, x, y, width, height) {
+        // 清除画布
+        ctx.clearRect(0, 0, width, height);
+        
+        // 绘制背景网格
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        
+        // 绘制网格线
+        for (let i = 0; i <= 10; i++) {
+            const pos = i * (width / 10);
+            
+            // 垂直线
+            ctx.beginPath();
+            ctx.moveTo(pos, 0);
+            ctx.lineTo(pos, height);
+            ctx.stroke();
+            
+            // 水平线
+            ctx.beginPath();
+            ctx.moveTo(0, pos);
+            ctx.lineTo(width, pos);
+            ctx.stroke();
+        }
+        
+        // 绘制中心十字线
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 2;
+        
+        // 垂直中心线
+        ctx.beginPath();
+        ctx.moveTo(width/2, 0);
+        ctx.lineTo(width/2, height);
+        ctx.stroke();
+        
+        // 水平中心线
+        ctx.beginPath();
+        ctx.moveTo(0, height/2);
+        ctx.lineTo(width, height/2);
+        ctx.stroke();
+        
+        // 绘制死区圆
+        ctx.strokeStyle = '#FF5252';
+        ctx.beginPath();
+        ctx.arc(width/2, height/2, width/20, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // 绘制最大范围圆
+        ctx.strokeStyle = '#4CAF50';
+        ctx.beginPath();
+        ctx.arc(width/2, height/2, width/2 - 10, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // 计算摇杆位置
+        const stickX = width/2 + x * (width/2 - 10);
+        const stickY = height/2 - y * (height/2 - 10); // Y轴反转，向上为正
+        
+        // 绘制摇杆点
+        ctx.fillStyle = '#FFEB3B';
+        ctx.beginPath();
+        ctx.arc(stickX, stickY, 8, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 绘制轨迹点
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.beginPath();
+        ctx.arc(stickX, stickY, 2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // 更新摇杆测试
+    function updateDeadzoneTest() {
+        if (!gamepad || !deadzoneTestActive) return;
+        
+        // 获取最新的手柄状态
+        gamepad = navigator.getGamepads()[gamepadIndex];
+        
+        if (gamepad) {
+            // 获取摇杆值
+            const leftX = gamepad.axes[0];
+            const leftY = gamepad.axes[1];
+            const rightX = gamepad.axes[2];
+            const rightY = gamepad.axes[3];
+            
+            // 更新信息显示
+            leftStickInfo.textContent = `X: ${leftX.toFixed(3)}, Y: ${leftY.toFixed(3)}`;
+            rightStickInfo.textContent = `X: ${rightX.toFixed(3)}, Y: ${rightY.toFixed(3)}`;
+            
+            // 绘制摇杆位置
+            drawStickPosition(leftCtx, leftX, leftY, leftStickCanvas.width, leftStickCanvas.height);
+            drawStickPosition(rightCtx, rightX, rightY, rightStickCanvas.width, rightStickCanvas.height);
+            
+            // 检测死区问题
+            const leftMagnitude = Math.sqrt(leftX * leftX + leftY * leftY);
+            const rightMagnitude = Math.sqrt(rightX * rightX + rightY * rightY);
+            
+            if (leftMagnitude < 0.05 && rightMagnitude < 0.05) {
+                deadzoneStatus.textContent = '摇杆居中 - 正常';
+                deadzoneStatus.style.color = '#4CAF50';
+            } else if (leftMagnitude < 0.05) {
+                deadzoneStatus.textContent = '左摇杆居中 - 右摇杆偏移';
+                deadzoneStatus.style.color = '#FFC107';
+            } else if (rightMagnitude < 0.05) {
+                deadzoneStatus.textContent = '右摇杆居中 - 左摇杆偏移';
+                deadzoneStatus.style.color = '#FFC107';
+            } else {
+                deadzoneStatus.textContent = '两个摇杆都偏移 - 可能需要校准';
+                deadzoneStatus.style.color = '#FF5252';
+            }
+        }
+        
+        deadzoneAnimationId = requestAnimationFrame(updateDeadzoneTest);
+    }
+    
+    // 开始测试按钮
+    startDeadzoneTest.addEventListener('click', () => {
+        if (!gamepad) {
+            deadzoneStatus.textContent = '未检测到手柄';
+            deadzoneStatus.style.color = '#FF5252';
+            return;
+        }
+        
+        deadzoneTestActive = true;
+        deadzoneStatus.textContent = '测试中...';
+        deadzoneStatus.style.color = '#FFFFFF';
+        
+        // 初始化画布
+        leftCtx.clearRect(0, 0, leftStickCanvas.width, leftStickCanvas.height);
+        rightCtx.clearRect(0, 0, rightStickCanvas.width, rightStickCanvas.height);
+        
+        // 开始更新
+        updateDeadzoneTest();
+    });
+    
+    // 停止测试按钮
+    stopDeadzoneTest.addEventListener('click', () => {
+        deadzoneTestActive = false;
+        if (deadzoneAnimationId) {
+            cancelAnimationFrame(deadzoneAnimationId);
+            deadzoneAnimationId = null;
+        }
+        deadzoneStatus.textContent = '测试已停止';
+        deadzoneStatus.style.color = '#FFFFFF';
+    });
+}
+
+// 按键响应时间测试
+let responseTestActive = false;
+let buttonResponseTimes = {};
+let lastButtonStates = {};
+
+function setupResponseTest() {
+    const startResponseTest = document.getElementById('startResponseTest');
+    const stopResponseTest = document.getElementById('stopResponseTest');
+    const responseStatus = document.getElementById('responseStatus');
+    const responseResults = document.getElementById('responseResults');
+    
+    // 开始测试
+    startResponseTest.addEventListener('click', () => {
+        if (!gamepad) {
+            responseStatus.textContent = '未检测到手柄';
+            return;
+        }
+        
+        responseTestActive = true;
+        buttonResponseTimes = {};
+        lastButtonStates = {};
+        responseResults.innerHTML = '';
+        responseStatus.textContent = '按下任意按键开始测试';
+    });
+    
+    // 停止测试
+    stopResponseTest.addEventListener('click', () => {
+        responseTestActive = false;
+        responseStatus.textContent = '测试已停止';
+    });
+    
+    // 更新响应时间测试
+    function updateResponseTest() {
+        if (!gamepad || !responseTestActive) return;
+        
+        // 获取最新的手柄状态
+        gamepad = navigator.getGamepads()[gamepadIndex];
+        
+        if (gamepad) {
+            // 检查按钮状态
+            for (let i = 0; i < gamepad.buttons.length; i++) {
+                const buttonName = getButtonName(i);
+                const pressed = gamepad.buttons[i].pressed;
+                
+                // 如果按钮状态发生变化
+                if (lastButtonStates[i] !== pressed) {
+                    if (pressed) {
+                        // 按钮被按下，记录时间
+                        buttonResponseTimes[i] = {
+                            startTime: performance.now(),
+                            endTime: null
+                        };
+                        responseStatus.textContent = `检测到按键: ${buttonName} - 测量中...`;
+                    } else if (buttonResponseTimes[i] && buttonResponseTimes[i].startTime) {
+                        // 按钮被释放，计算响应时间
+                        buttonResponseTimes[i].endTime = performance.now();
+                        const responseTime = buttonResponseTimes[i].endTime - buttonResponseTimes[i].startTime;
+                        
+                        // 显示结果
+                        const resultElement = document.createElement('div');
+                        resultElement.className = 'response-result';
+                        resultElement.textContent = `${buttonName}: ${responseTime.toFixed(2)}ms`;
+                        
+                        // 根据响应时间设置颜色
+                        if (responseTime < 20) {
+                            resultElement.style.color = '#4CAF50'; // 绿色 - 非常好
+                        } else if (responseTime < 50) {
+                            resultElement.style.color = '#8BC34A'; // 浅绿色 - 好
+                        } else if (responseTime < 100) {
+                            resultElement.style.color = '#FFC107'; // 黄色 - 一般
+                        } else {
+                            resultElement.style.color = '#FF5252'; // 红色 - 差
+                        }
+                        
+                        responseResults.appendChild(resultElement);
+                        responseStatus.textContent = '按下任意按键继续测试';
+                    }
+                    
+                    // 更新按钮状态
+                    lastButtonStates[i] = pressed;
+                }
+            }
+        }
+    }
+    
+    // 获取按钮名称
+    function getButtonName(index) {
+        const buttonMapping = {
+            0: 'A', 1: 'B', 2: 'X', 3: 'Y',
+            4: 'LB', 5: 'RB', 6: 'LT', 7: 'RT',
+            8: 'Back', 9: 'Start',
+            10: 'LS', 11: 'RS',
+            12: 'DPadUp', 13: 'DPadDown', 14: 'DPadLeft', 15: 'DPadRight',
+            16: 'Guide',
+            17: 'L5', 18: 'R5', 19: 'Back1', 20: 'Back2'
+        };
+        
+        return buttonMapping[index] || `按钮${index}`;
+    }
+    
+    // 添加到更新循环
+    const originalUpdateStatus = window.updateStatus;
+    window.updateStatus = function() {
+        originalUpdateStatus();
+        if (responseTestActive) {
+            updateResponseTest();
+        }
+    };
+}
+
+// 十字键八向测试
+let dpadTestActive = false;
+let dpadAnimationId = null;
+
+function setupDpadTest() {
+    const startDpadTest = document.getElementById('startDpadTest');
+    const stopDpadTest = document.getElementById('stopDpadTest');
+    const dpadCanvas = document.getElementById('dpadCanvas');
+    const dpadInfo = document.getElementById('dpadInfo');
+    
+    const ctx = dpadCanvas.getContext('2d');
+    const width = dpadCanvas.width;
+    const height = dpadCanvas.height;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    
+    // 绘制十字键方向
+    function drawDpadDirection(direction) {
+        // 清除画布
+        ctx.clearRect(0, 0, width, height);
+        
+        // 绘制背景圆
+        ctx.fillStyle = '#333';
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, width/2 - 10, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 绘制八个方向区域
+        const directions = [
+            'up', 'upright', 'right', 'downright', 
+            'down', 'downleft', 'left', 'upleft'
+        ];
+        
+        for (let i = 0; i < 8; i++) {
+            const angle = i * Math.PI / 4;
+            const startAngle = angle - Math.PI / 8;
+            const endAngle = angle + Math.PI / 8;
+            
+            ctx.fillStyle = directions[i] === direction ? '#4CAF50' : '#555';
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.arc(centerX, centerY, width/2 - 20, startAngle, endAngle);
+            ctx.closePath();
+            ctx.fill();
+            
+            // 绘制方向标签
+            ctx.fillStyle = '#fff';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            const labelRadius = width/2 - 40;
+            const labelX = centerX + Math.sin(angle) * labelRadius;
+            const labelY = centerY - Math.cos(angle) * labelRadius;
+            
+            let label;
+            switch(directions[i]) {
+                case 'up': label = '↑'; break;
+                case 'upright': label = '↗'; break;
+                case 'right': label = '→'; break;
+                case 'downright': label = '↘'; break;
+                case 'down': label = '↓'; break;
+                case 'downleft': label = '↙'; break;
+                case 'left': label = '←'; break;
+                case 'upleft': label = '↖'; break;
+                default: label = '';
+            }
+            
+            ctx.fillText(label, labelX, labelY);
+        }
+        
+        // 绘制中心点
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // 获取十字键方向
+    function getDpadDirection() {
+        if (!gamepad) return 'none';
+        
+        const up = gamepad.buttons[12].pressed;
+        const down = gamepad.buttons[13].pressed;
+        const left = gamepad.buttons[14].pressed;
+        const right = gamepad.buttons[15].pressed;
+        
+        if (up && right) return 'upright';
+        if (down && right) return 'downright';
+        if (down && left) return 'downleft';
+        if (up && left) return 'upleft';
+        if (up) return 'up';
+        if (right) return 'right';
+        if (down) return 'down';
+        if (left) return 'left';
+        
+        return 'none';
+    }
+    
+    // 更新十字键测试
+    function updateDpadTest() {
+        if (!gamepad || !dpadTestActive) return;
+        
+        // 获取最新的手柄状态
+        gamepad = navigator.getGamepads()[gamepadIndex];
+        
+        if (gamepad) {
+            const direction = getDpadDirection();
+            drawDpadDirection(direction);
+            
+            // 更新方向信息
+            if (direction === 'none') {
+                dpadInfo.textContent = '方向: 无';
+            } else {
+                const directionMap = {
+                    'up': '上',
+                    'upright': '右上',
+                    'right': '右',
+                    'downright': '右下',
+                    'down': '下',
+                    'downleft': '左下',
+                    'left': '左',
+                    'upleft': '左上'
+                };
+                
+                dpadInfo.textContent = `方向: ${directionMap[direction]}`;
+            }
+        }
+        
+        dpadAnimationId = requestAnimationFrame(updateDpadTest);
+    }
+    
+    // 开始测试按钮
+    startDpadTest.addEventListener('click', () => {
+        if (!gamepad) {
+            dpadInfo.textContent = '未检测到手柄';
+            return;
+        }
+        
+        dpadTestActive = true;
+        drawDpadDirection('none');
+        updateDpadTest();
+    });
+    
+    // 停止测试按钮
+    stopDpadTest.addEventListener('click', () => {
+        dpadTestActive = false;
+        if (dpadAnimationId) {
+            cancelAnimationFrame(dpadAnimationId);
+            dpadAnimationId = null;
+        }
+        dpadInfo.textContent = '测试已停止';
+    });
+}
+
+// 手柄连接稳定性测试
+let stabilityTestActive = false;
+let stabilityInterval = null;
+let connectionTimes = [];
+let lastConnectionTime = null;
+let disconnectCount = 0;
+
+function setupStabilityTest() {
+    const startStabilityTest = document.getElementById('startStabilityTest');
+    const stopStabilityTest = document.getElementById('stopStabilityTest');
+    const stabilityStatus = document.getElementById('stabilityStatus');
+    const stabilityDuration = document.getElementById('stabilityDuration');
+    const disconnectCountElement = document.getElementById('disconnectCount');
+    const maxConnectTimeElement = document.getElementById('maxConnectTime');
+    const minConnectTimeElement = document.getElementById('minConnectTime');
+    const avgConnectTimeElement = document.getElementById('avgConnectTime');
+    
+    // 开始测试
+    startStabilityTest.addEventListener('click', () => {
+        if (!gamepad) {
+            stabilityStatus.textContent = '未检测到手柄';
+            return;
+        }
+        
+        // 重置数据
+        stabilityTestActive = true;
+        connectionTimes = [];
+        lastConnectionTime = Date.now();
+        disconnectCount = 0;
+        
+        // 更新UI
+        disconnectCountElement.textContent = '0';
+        maxConnectTimeElement.textContent = '0秒';
+        minConnectTimeElement.textContent = '0秒';
+        avgConnectTimeElement.textContent = '0秒';
+        
+        // 获取测试时长（分钟）
+        const durationMinutes = parseInt(stabilityDuration.value) || 5;
+        const durationMs = durationMinutes * 60 * 1000;
+        
+        // 更新状态
+        stabilityStatus.textContent = `测试中... (剩余: ${durationMinutes}分钟)`;
+        
+        // 设置定时器更新剩余时间
+        const startTime = Date.now();
+        stabilityInterval = setInterval(() => {
+            const elapsedMs = Date.now() - startTime;
+            const remainingMs = durationMs - elapsedMs;
+            
+            if (remainingMs <= 0) {
+                // 测试完成
+                clearInterval(stabilityInterval);
+                stabilityTestActive = false;
+                stabilityStatus.textContent = '测试完成';
+                updateStabilityResults();
+                return;
+            }
+            
+            // 更新剩余时间
+            const remainingMinutes = Math.ceil(remainingMs / 60000);
+            stabilityStatus.textContent = `测试中... (剩余: ${remainingMinutes}分钟)`;
+            
+            // 检查手柄连接状态
+            checkControllerConnection();
+        }, 1000);
+    });
+    
+    // 停止测试按钮
+    stopStabilityTest.addEventListener('click', () => {
+        if (stabilityInterval) {
+            clearInterval(stabilityInterval);
+            stabilityInterval = null;
+        }
+        stabilityTestActive = false;
+        stabilityStatus.textContent = '测试已停止';
+        updateStabilityResults();
+    });
+    
+    // 检查手柄连接状态
+    function checkControllerConnection() {
+        const currentGamepad = navigator.getGamepads()[gamepadIndex];
+        const now = Date.now();
+        
+        if (!currentGamepad && gamepad) {
+            // 手柄断开连接
+            disconnectCount++;
+            disconnectCountElement.textContent = disconnectCount;
+            
+            // 记录连接时间
+            const connectionDuration = now - lastConnectionTime;
+            connectionTimes.push(connectionDuration);
+            
+            // 更新结果
+            updateStabilityResults();
+        } else if (currentGamepad && !gamepad) {
+            // 手柄重新连接
+            lastConnectionTime = now;
+        }
+        
+        // 更新当前手柄状态
+        gamepad = currentGamepad;
+    }
+    
+    // 更新稳定性测试结果
+    function updateStabilityResults() {
+        if (connectionTimes.length === 0) return;
+        
+        // 计算最长、最短和平均连接时间
+        const maxTime = Math.max(...connectionTimes);
+        const minTime = Math.min(...connectionTimes);
+        const avgTime = connectionTimes.reduce((sum, time) => sum + time, 0) / connectionTimes.length;
+        
+        // 更新UI
+        maxConnectTimeElement.textContent = formatTime(maxTime);
+        minConnectTimeElement.textContent = formatTime(minTime);
+        avgConnectTimeElement.textContent = formatTime(avgTime);
+    }
+    
+    // 格式化时间
+    function formatTime(ms) {
+        if (ms < 1000) return `${ms}毫秒`;
+        
+        const seconds = Math.floor(ms / 1000);
+        if (seconds < 60) return `${seconds}秒`;
+        
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        return `${minutes}分${remainingSeconds}秒`;
+    }
+}
+
+// 初始化新测试功能
+function setupAdvancedTests() {
+    setupDeadzoneTest();
+    setupResponseTest();
+    setupDpadTest();
+    setupStabilityTest();
+}
+
+// 在DOMContentLoaded事件中添加新测试功能的初始化
+const originalDOMContentLoaded = window.addEventListener;
+window.addEventListener = function(event, callback) {
+    if (event === 'DOMContentLoaded') {
+        const originalCallback = callback;
+        callback = function() {
+            originalCallback();
+            setupAdvancedTests();
+        };
+    }
+    originalDOMContentLoaded.call(window, event, callback);
+};
+
 // 清理函数
 window.addEventListener('beforeunload', () => {
     if (requestId) {
@@ -722,13 +1616,26 @@ window.addEventListener('beforeunload', () => {
         clearInterval(monitoringInterval);
     }
     
+    if (deadzoneAnimationId) {
+        cancelAnimationFrame(deadzoneAnimationId);
+    }
+    
+    if (dpadAnimationId) {
+        cancelAnimationFrame(dpadAnimationId);
+    }
+    
+    if (stabilityInterval) {
+        clearInterval(stabilityInterval);
+    }
+    
+    // 清除震动效果定时器
+    if (vibrationEffectTimer) {
+        clearTimeout(vibrationEffectTimer);
+        vibrationEffectTimer = null;
+    }
+    
     // 停止所有震动
-    if (gamepad && gamepad.vibrationActuator) {
-        gamepad.vibrationActuator.playEffect('dual-rumble', {
-            startDelay: 0,
-            duration: 1,
-            weakMagnitude: 0,
-            strongMagnitude: 0
-        });
+    if (gamepad) {
+        stopAllVibration();
     }
 });
