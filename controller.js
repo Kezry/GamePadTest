@@ -30,7 +30,6 @@ const buttonConfig = [
     { name: 'DPadRight', label: '→', x: 220, y: 330, type: 'dpad', direction: 'right' },
     { name: 'DPadDown', label: '↓', x: 190, y: 360, type: 'dpad', direction: 'down' },
     { name: 'DPadLeft', label: '←', x: 160, y: 330, type: 'dpad', direction: 'left' },
-    { name: 'Guide', label: 'Xbox', x: 400, y: 220, type: 'button' },
     // 添加L5、R5按键和背键
     { name: 'L5', label: 'L5', x: 150, y: 150, type: 'button' },
     { name: 'R5', label: 'R5', x: 650, y: 150, type: 'button' },
@@ -48,6 +47,10 @@ window.addEventListener('DOMContentLoaded', () => {
     
     // 设置监测控制
     setupMonitoringControls();
+    
+    // 设置高级测试功能（添加测试状态初始化）
+let advancedTestActive = false;
+setupAdvancedTests();
     
     // 开始游戏手柄检测
     window.addEventListener('gamepadconnected', handleGamepadConnected);
@@ -199,100 +202,74 @@ function setupVibrationControls() {
         const rightTriggerMag = rightTrig !== null ? rightTrig : parseFloat(rightTrigger.value);
         
         // 应用马达震动
+    if (gamepad.vibrationActuator) {
         gamepad.vibrationActuator.playEffect('dual-rumble', {
             startDelay: 0,
             duration: duration,
             weakMagnitude,
             strongMagnitude
         });
-        
-        // 尝试扳机震动 - 使用多种可能的API
-        applyTriggerVibration(leftTriggerMag, rightTriggerMag, duration);
+    }
+
+    // 优化扳机震动逻辑（优先使用hapticActuators并指定左右位置）
+    if (gamepad.hapticActuators?.length >= 2) {
+        gamepad.hapticActuators[0].pulse(leftTriggerMag, duration); // 左扳机
+        gamepad.hapticActuators[1].pulse(rightTriggerMag, duration); // 右扳机
+    } else if (typeof gamepad.setTriggerVibration === 'function') {
+        gamepad.setTriggerVibration(leftTriggerMag, rightTriggerMag, duration);
+    }
     }
     
     // 扳机震动专用函数
     function applyTriggerVibration(leftMag, rightMag, duration = 1000) {
-        if (!gamepad) return;
+        if (!gamepad) {
+            console.log('未检测到游戏手柄，无法触发震动');
+            return;
+        }
         
         try {
-            // 方法1: 使用hapticActuators数组
-            if (gamepad.hapticActuators && gamepad.hapticActuators.length > 0) {
-                // 如果有两个或更多执行器，假设第一个是左扳机，第二个是右扳机
-                if (gamepad.hapticActuators.length >= 2) {
-                    gamepad.hapticActuators[0].pulse(leftMag, duration);
-                    gamepad.hapticActuators[1].pulse(rightMag, duration);
-                } else {
-                    // 如果只有一个执行器，尝试使用它
-                    gamepad.hapticActuators[0].pulse(Math.max(leftMag, rightMag), duration);
-                }
-                
-                // 尝试按类型和位置查找执行器
-                for (let i = 0; i < gamepad.hapticActuators.length; i++) {
-                    const actuator = gamepad.hapticActuators[i];
-                    if (actuator.type === 'trigger' || actuator.type === 'vibration') {
-                        if (actuator.position === 'left') {
-                            actuator.pulse(leftMag, duration);
-                        } else if (actuator.position === 'right') {
-                            actuator.pulse(rightMag, duration);
-                        } else {
-                            // 如果没有指定位置，尝试使用最大强度
-                            actuator.pulse(Math.max(leftMag, rightMag), duration);
-                        }
-                    }
-                }
-            }
-            
-            // 方法2: 尝试使用vibrationActuators
-            if (gamepad.vibrationActuators && gamepad.vibrationActuators.length > 0) {
-                for (let i = 0; i < gamepad.vibrationActuators.length; i++) {
-                    const actuator = gamepad.vibrationActuators[i];
-                    if (actuator.type === 'trigger' || actuator.type === 'vibration') {
-                        if (actuator.position === 'left') {
-                            actuator.playEffect('dual-rumble', {
-                                startDelay: 0,
-                                duration: duration,
-                                strongMagnitude: leftMag
-                            });
-                        } else if (actuator.position === 'right') {
-                            actuator.playEffect('dual-rumble', {
-                                startDelay: 0,
-                                duration: duration,
-                                strongMagnitude: rightMag
-                            });
-                        } else {
-                            // 如果没有指定位置，尝试使用最大强度
-                            actuator.playEffect('dual-rumble', {
-                                startDelay: 0,
-                                duration: duration,
-                                strongMagnitude: Math.max(leftMag, rightMag)
-                            });
-                        }
-                    }
-                }
-            }
-            
-            // 方法3: 尝试使用GamepadHapticActuator API (Xbox控制器)
-            if (gamepad.hapticActuators && gamepad.hapticActuators.some(a => a.type === 'gamepad')) {
-                const gamepadActuator = gamepad.hapticActuators.find(a => a.type === 'gamepad');
-                if (gamepadActuator) {
-                    gamepadActuator.pulse(Math.max(leftMag, rightMag), duration);
-                }
-            }
-            
-            // 方法4: 尝试使用触发器特定API (如果存在)
+            // 校验输入范围（Xbox手柄强度需在0-1之间）
+            const clampedLeft = Math.max(0, Math.min(1, leftMag));
+            const clampedRight = Math.max(0, Math.min(1, rightMag));
+
+            // 优先使用Xbox官方推荐的setTriggerVibration API（微软文档要求）<mcreference link="https://learn.microsoft.com/en-us/gaming/input/xbox-gamepad/" index="1"></mcreference>
             if (typeof gamepad.setTriggerVibration === 'function') {
-                gamepad.setTriggerVibration(leftMag, rightMag, duration);
+                gamepad.setTriggerVibration(clampedLeft, clampedRight, duration);
+                console.log(`已成功调用Xbox官方API: 左强度${clampedLeft.toFixed(2)}, 右强度${clampedRight.toFixed(2)}, 持续时间${duration}ms`);
+                return;
+            }
+
+            // 明确hapticActuators的左右对应关系（部分手柄索引可能不同）
+            if (gamepad.hapticActuators?.length >= 2) {
+                const leftActuator = gamepad.hapticActuators.find(a => a.type === 'left-trigger');
+                const rightActuator = gamepad.hapticActuators.find(a => a.type === 'right-trigger');
+                if (leftActuator && rightActuator) {
+                    leftActuator.pulse(clampedLeft, duration);
+                    rightActuator.pulse(clampedRight, duration);
+                    console.log(`通过hapticActuators精准触发: 左扳机${clampedLeft.toFixed(2)}, 右扳机${clampedRight.toFixed(2)}`);
+                    return;
+                }
+            }
+
+            // 兼容其他设备的vibrationActuators（保留原逻辑）
+            if (gamepad.vibrationActuators?.length > 0) {
+                gamepad.vibrationActuators.forEach((actuator, index) => {
+                    if (actuator.type === 'trigger') {
+                        const mag = index === 0 ? clampedLeft : clampedRight;
+                        actuator.playEffect('dual-rumble', {
+                            startDelay: 0,
+                            duration: duration,
+                            strongMagnitude: mag
+                        });
+                    }
+                });
+                console.log(`已通过vibrationActuators触发震动: 左强度${leftMag}, 右强度${rightMag}, 持续时间${duration}ms`);
+                return;
             }
             
-            // 方法5: 尝试使用DualSense特定API (如果存在)
-            if (typeof gamepad.setDualSenseTriggerEffect === 'function') {
-                gamepad.setDualSenseTriggerEffect('vibration', {
-                    left: { intensity: leftMag, duration: duration },
-                    right: { intensity: rightMag, duration: duration }
-                });
-            }
+            console.log('当前设备不支持任何扳机震动API');
         } catch (e) {
-            console.log('扳机震动尝试失败:', e);
+            console.error('扳机震动执行失败:', e);
         }
     }
     
@@ -938,10 +915,11 @@ function updateButtonStatus() {
         4: 'LB', 5: 'RB', 6: 'LT', 7: 'RT',
         8: 'Back', 9: 'Start',
         10: 'LS', 11: 'RS',
-        12: 'DPadUp', 13: 'DPadDown', 14: 'DPadLeft', 15: 'DPadRight',
+        12: 'DPadUp', 13: 'DPadDown', 14: 'DPadLeft', 15: 'DPadRight', // 确认手柄实际DPad索引是否匹配，若方向仍错需交换索引值（如12↔13）
         16: 'Guide',
         // 扩展按钮映射
-        17: 'L5', 18: 'R5', 19: 'Back1', 20: 'Back2'
+        // 调整为实际检测到的Xbox手柄背键索引（示例值，需根据实际日志调整）
+        17: 'L5', 18: 'R5', 19: 'Back1', 20: 'Back2' // 注意：请通过控制台日志确认实际按钮索引后修改
     };
     
     // 更新按钮状态
@@ -988,7 +966,7 @@ function updateAxisStatus() {
     const leftStick = document.getElementById('LS');
     if (leftStick && gamepad.axes.length >= 2) {
         const x = gamepad.axes[0];
-        const y = gamepad.axes[1];
+        const y = -gamepad.axes[1]; // 反转Y轴方向解决上下颠倒
         leftStick.style.transform = `translate(${x * 15}px, ${y * 15}px)`;
         
         // 如果摇杆移动超过阈值，添加激活样式
@@ -1044,6 +1022,7 @@ function setupDeadzoneTest() {
     
     // 绘制摇杆位置的函数
     function drawStickPosition(ctx, x, y, width, height) {
+        y = -y;
         // 清除画布
         ctx.clearRect(0, 0, width, height);
         
@@ -1281,9 +1260,10 @@ function setupResponseTest() {
             4: 'LB', 5: 'RB', 6: 'LT', 7: 'RT',
             8: 'Back', 9: 'Start',
             10: 'LS', 11: 'RS',
-            12: 'DPadUp', 13: 'DPadDown', 14: 'DPadLeft', 15: 'DPadRight',
+            12: 'DPadUp', 13: 'DPadDown', 14: 'DPadLeft', 15: 'DPadRight', // 确认手柄实际DPad索引是否匹配，若方向仍错需交换索引值（如12↔13）
             16: 'Guide',
-            17: 'L5', 18: 'R5', 19: 'Back1', 20: 'Back2'
+            // 调整为实际检测到的Xbox手柄背键索引（示例值，需根据实际日志调整）
+        17: 'L5', 18: 'R5', 19: 'Back1', 20: 'Back2' // 注意：请通过控制台日志确认实际按钮索引后修改
         };
         
         return buttonMapping[index] || `按钮${index}`;
@@ -1328,8 +1308,9 @@ function setupDpadTest() {
         
         // 绘制八个方向区域
         const directions = [
-            'up', 'upright', 'right', 'downright', 
+             'right', 'downright', 
             'down', 'downleft', 'left', 'upleft'
+            ,'up', 'upright'
         ];
         
         for (let i = 0; i < 8; i++) {
