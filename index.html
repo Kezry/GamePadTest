@@ -451,11 +451,25 @@
                         <h4>左摇杆</h4>
                         <canvas id="leftStickCanvas" width="200" height="200"></canvas>
                         <div class="stick-info" id="leftStickInfo">X: 0.00, Y: 0.00</div>
+                        <div class="trajectory-controls">
+                            <label for="leftTrajectoryRate">采样率(Hz):</label>
+                            <input type="number" id="leftTrajectoryRate" value="500" min="1" max="2000" style="width:60px;">
+                            <button id="leftTrajectoryClear">清除轨迹</button>
+                            <button id="leftTrajectoryFullscreen">全屏</button>
+                        </div>
+                        <canvas id="leftTrajectoryCanvas" width="200" height="200" style="border:1px solid #888;margin-top:8px;"></canvas>
                     </div>
                     <div class="stick-visualization" id="rightStickVisualization">
                         <h4>右摇杆</h4>
                         <canvas id="rightStickCanvas" width="200" height="200"></canvas>
                         <div class="stick-info" id="rightStickInfo">X: 0.00, Y: 0.00</div>
+                        <div class="trajectory-controls">
+                            <label for="rightTrajectoryRate">采样率(Hz):</label>
+                            <input type="number" id="rightTrajectoryRate" value="500" min="1" max="2000" style="width:60px;">
+                            <button id="rightTrajectoryClear">清除轨迹</button>
+                            <button id="rightTrajectoryFullscreen">全屏</button>
+                        </div>
+                        <canvas id="rightTrajectoryCanvas" width="200" height="200" style="border:1px solid #888;margin-top:8px;"></canvas>
                     </div>
                 </div>
             </div>

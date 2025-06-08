@@ -879,15 +879,30 @@ function handleGamepadDisconnected(event) {
 
 // 检查是否已经连接了手柄
 function checkGamepads() {
-    const gamepads = navigator.getGamepads();
+    if (!navigator.getGamepads) {
+        document.getElementById('buttonStatus').textContent = '当前浏览器不支持 Gamepad API，请使用最新版 Chrome/Edge/Firefox。';
+        return;
+    }
+    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+    if (!gamepads) {
+        document.getElementById('buttonStatus').textContent = '无法获取手柄信息，请检查浏览器设置或系统权限。';
+        return;
+    }
+    let found = false;
     for (let i = 0; i < gamepads.length; i++) {
         if (gamepads[i]) {
             gamepadIndex = i;
             gamepad = gamepads[i];
             document.getElementById('buttonStatus').textContent = 
                 `已连接: ${gamepad.id} (索引: ${gamepadIndex})`;
+            found = true;
             break;
         }
+    }
+    if (!found) {
+        gamepadIndex = null;
+        gamepad = null;
+        document.getElementById('buttonStatus').textContent = '未检测到手柄，请插入手柄并按任意键唤醒。';
     }
 }
 
@@ -1015,10 +1030,130 @@ function setupDeadzoneTest() {
     const rightStickCanvas = document.getElementById('rightStickCanvas');
     const leftStickInfo = document.getElementById('leftStickInfo');
     const rightStickInfo = document.getElementById('rightStickInfo');
+    const leftTrajectoryCanvas = document.getElementById('leftTrajectoryCanvas');
+    const rightTrajectoryCanvas = document.getElementById('rightTrajectoryCanvas');
+    const leftTrajectoryRateInput = document.getElementById('leftTrajectoryRate');
+    const rightTrajectoryRateInput = document.getElementById('rightTrajectoryRate');
+    const leftTrajectoryClear = document.getElementById('leftTrajectoryClear');
+    const rightTrajectoryClear = document.getElementById('rightTrajectoryClear');
+    const leftTrajectoryFullscreen = document.getElementById('leftTrajectoryFullscreen');
+    const rightTrajectoryFullscreen = document.getElementById('rightTrajectoryFullscreen');
+
+    function requestFullscreen(element) {
+        if (element.requestFullscreen) {
+            element.requestFullscreen();
+        } else if (element.webkitRequestFullscreen) {
+            element.webkitRequestFullscreen();
+        } else if (element.mozRequestFullScreen) {
+            element.mozRequestFullScreen();
+        } else if (element.msRequestFullscreen) {
+            element.msRequestFullscreen();
+        }
+    }
+
+    leftTrajectoryFullscreen.addEventListener('click', () => {
+        requestFullscreen(leftTrajectoryCanvas);
+    });
+
+    rightTrajectoryFullscreen.addEventListener('click', () => {
+        requestFullscreen(rightTrajectoryCanvas);
+    });
+
     
-    // 初始化画布
+    // 初始化画布上下文
     const leftCtx = leftStickCanvas.getContext('2d');
     const rightCtx = rightStickCanvas.getContext('2d');
+    const leftTrajectoryCtx = leftTrajectoryCanvas.getContext('2d');
+    const rightTrajectoryCtx = rightTrajectoryCanvas.getContext('2d');
+    let leftTrajectory = [];
+    let rightTrajectory = [];
+    let leftTrajectoryTimer = null;
+    let rightTrajectoryTimer = null;
+
+    function drawTrajectory(ctx, trajectory, width, height) {
+        if (!ctx) return;
+        ctx.clearRect(0, 0, width, height);
+        
+        // 绘制背景网格
+        ctx.strokeStyle = '#ddd';
+        ctx.lineWidth = 1;
+        
+        // 绘制垂直线
+        for (let x = 0; x <= width; x += width/10) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+        }
+        
+        // 绘制水平线
+        for (let y = 0; y <= height; y += height/10) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+        
+        // 绘制中心十字线
+        ctx.strokeStyle = '#666';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(width/2, 0);
+        ctx.lineTo(width/2, height);
+        ctx.moveTo(0, height/2);
+        ctx.lineTo(width, height/2);
+        ctx.stroke();
+        
+        // 绘制采样点
+        if (trajectory.length > 0) {
+            ctx.fillStyle = '#FFFFFF';
+            for (let i = 0; i < trajectory.length; i++) {
+                const {x, y} = trajectory[i];
+                const px = width/2 + x * (width/2 - 10);
+                const py = height/2 + y * (height/2 - 10); // 修改为加号，使Y轴向下为正
+                ctx.beginPath();
+                const pointSize = document.fullscreenElement ? 3 : 2; // 全屏时增大点的大小
+                ctx.arc(px, py, pointSize, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+    }
+
+    function startTrajectorySampling() {
+        stopTrajectorySampling();
+        leftTrajectory = [];
+        rightTrajectory = [];
+        const leftRate = Math.max(1, Math.min(2000, parseInt(leftTrajectoryRateInput.value) || 500));
+        const rightRate = Math.max(1, Math.min(2000, parseInt(rightTrajectoryRateInput.value) || 500));
+        leftTrajectoryTimer = setInterval(() => {
+            if (!gamepad) return;
+            const lx = gamepad.axes[0];
+            const ly = gamepad.axes[1];
+            leftTrajectory.push({x: lx, y: ly});
+            if (leftTrajectory.length > 1000) leftTrajectory.shift();
+            drawTrajectory(leftTrajectoryCtx, leftTrajectory, leftTrajectoryCanvas.width, leftTrajectoryCanvas.height);
+        }, 1000 / leftRate);
+        rightTrajectoryTimer = setInterval(() => {
+            if (!gamepad) return;
+            const rx = gamepad.axes[2];
+            const ry = gamepad.axes[3];
+            rightTrajectory.push({x: rx, y: ry});
+            if (rightTrajectory.length > 1000) rightTrajectory.shift();
+            drawTrajectory(rightTrajectoryCtx, rightTrajectory, rightTrajectoryCanvas.width, rightTrajectoryCanvas.height);
+        }, 1000 / rightRate);
+    }
+    function stopTrajectorySampling() {
+        if (leftTrajectoryTimer) { clearInterval(leftTrajectoryTimer); leftTrajectoryTimer = null; }
+        if (rightTrajectoryTimer) { clearInterval(rightTrajectoryTimer); rightTrajectoryTimer = null; }
+    }
+    leftTrajectoryClear.addEventListener('click', () => {
+        leftTrajectory = [];
+        drawTrajectory(leftTrajectoryCtx, leftTrajectory, leftTrajectoryCanvas.width, leftTrajectoryCanvas.height);
+    });
+    rightTrajectoryClear.addEventListener('click', () => {
+        rightTrajectory = [];
+        drawTrajectory(rightTrajectoryCtx, rightTrajectory, rightTrajectoryCanvas.width, rightTrajectoryCanvas.height);
+    });
     
     // 绘制摇杆位置的函数
     function drawStickPosition(ctx, x, y, width, height) {
@@ -1151,10 +1286,17 @@ function setupDeadzoneTest() {
         // 初始化画布
         leftCtx.clearRect(0, 0, leftStickCanvas.width, leftStickCanvas.height);
         rightCtx.clearRect(0, 0, rightStickCanvas.width, rightStickCanvas.height);
+        leftTrajectoryCtx.clearRect(0, 0, leftTrajectoryCanvas.width, leftTrajectoryCanvas.height);
+        rightTrajectoryCtx.clearRect(0, 0, rightTrajectoryCanvas.width, rightTrajectoryCanvas.height);
+        
+        // 开始轨迹采样
+        startTrajectorySampling();
         
         // 开始更新
         updateDeadzoneTest();
     });
+
+// 此处多余的 if 语句块已删除，修复了函数结构和大括号闭合问题。
     
     // 停止测试按钮
     stopDeadzoneTest.addEventListener('click', () => {
@@ -1163,6 +1305,10 @@ function setupDeadzoneTest() {
             cancelAnimationFrame(deadzoneAnimationId);
             deadzoneAnimationId = null;
         }
+        
+        // 停止轨迹采样
+        stopTrajectorySampling();
+        
         deadzoneStatus.textContent = '测试已停止';
         deadzoneStatus.style.color = '#FFFFFF';
     });
@@ -1620,3 +1766,15 @@ window.addEventListener('beforeunload', () => {
         stopAllVibration();
     }
 });
+
+// 生成随机颜色
+function getRandomColor() {
+    const letters = '0123456789ABCDEF';
+    let color = '#';
+    for (let i = 0; i < 6; i++) {
+        color += letters[Math.floor(Math.random() * 16)];
+    }
+    return color;
+}
+
+// 摇杆死区测试
