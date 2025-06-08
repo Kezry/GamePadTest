@@ -11,6 +11,7 @@ let lastTimestamp = {};
 let buttonPressStartTime = {}; // 记录按键开始按下的时间
 let disconnectCounts = {}; // 记录断开次数
 let maxPowerTime = 5 * 60 * 1000; // 5分钟蓄力时间（毫秒）
+let dpadHistory = []; // 记录十字键按下历史
 
 // 按钮映射和位置
 const buttonConfig = [
@@ -1112,7 +1113,7 @@ function setupDeadzoneTest() {
                 const px = width/2 + x * (width/2 - 10);
                 const py = height/2 + y * (height/2 - 10); // 修改为加号，使Y轴向下为正
                 ctx.beginPath();
-                const pointSize = document.fullscreenElement ? 3 : 2; // 全屏时增大点的大小
+                const pointSize = document.fullscreenElement ? 2 : 1.5; // 调整点的大小
                 ctx.arc(px, py, pointSize, 0, Math.PI * 2);
                 ctx.fill();
             }
@@ -1120,27 +1121,41 @@ function setupDeadzoneTest() {
     }
 
     function startTrajectorySampling() {
-        stopTrajectorySampling();
-        leftTrajectory = [];
-        rightTrajectory = [];
-        const leftRate = Math.max(1, Math.min(2000, parseInt(leftTrajectoryRateInput.value) || 500));
-        const rightRate = Math.max(1, Math.min(2000, parseInt(rightTrajectoryRateInput.value) || 500));
-        leftTrajectoryTimer = setInterval(() => {
-            if (!gamepad) return;
-            const lx = gamepad.axes[0];
-            const ly = gamepad.axes[1];
-            leftTrajectory.push({x: lx, y: ly});
-            if (leftTrajectory.length > 1000) leftTrajectory.shift();
-            drawTrajectory(leftTrajectoryCtx, leftTrajectory, leftTrajectoryCanvas.width, leftTrajectoryCanvas.height);
-        }, 1000 / leftRate);
-        rightTrajectoryTimer = setInterval(() => {
-            if (!gamepad) return;
-            const rx = gamepad.axes[2];
-            const ry = gamepad.axes[3];
-            rightTrajectory.push({x: rx, y: ry});
-            if (rightTrajectory.length > 1000) rightTrajectory.shift();
-            drawTrajectory(rightTrajectoryCtx, rightTrajectory, rightTrajectoryCanvas.width, rightTrajectoryCanvas.height);
-        }, 1000 / rightRate);
+      stopTrajectorySampling();
+      leftTrajectory = [];
+      rightTrajectory = [];
+      
+      // 获取采样率设置
+      const leftRateInput = document.getElementById('leftTrajectoryRate');
+      const rightRateInput = document.getElementById('rightTrajectoryRate');
+      
+      // 确保使用正确的采样率
+      const baseLeftRate = parseInt(leftRateInput.value) || 500;
+      const baseRightRate = parseInt(rightRateInput.value) || 500;
+      
+      // 在全屏模式下提高采样率（可选）
+      const isFullscreen = !!document.fullscreenElement;
+      const leftRate = isFullscreen ? Math.min(baseLeftRate * 2, 2000) : baseLeftRate;
+      const rightRate = isFullscreen ? Math.min(baseRightRate * 2, 2000) : baseRightRate;
+      
+      // 设置采样间隔
+      leftTrajectoryTimer = setInterval(() => {
+          if (!gamepad) return;
+          const lx = gamepad.axes[0];
+          const ly = gamepad.axes[1];
+          leftTrajectory.push({x: lx, y: ly});
+          if (leftTrajectory.length > 1000) leftTrajectory.shift();
+          drawTrajectory(leftTrajectoryCtx, leftTrajectory, leftTrajectoryCanvas.width, leftTrajectoryCanvas.height);
+      }, 1000 / leftRate); // 根据采样率精确计算时间间隔
+      
+      rightTrajectoryTimer = setInterval(() => {
+          if (!gamepad) return;
+          const rx = gamepad.axes[2];
+          const ry = gamepad.axes[3];
+          rightTrajectory.push({x: rx, y: ry});
+          if (rightTrajectory.length > 1000) rightTrajectory.shift();
+          drawTrajectory(rightTrajectoryCtx, rightTrajectory, rightTrajectoryCanvas.width, rightTrajectoryCanvas.height);
+      }, 1000 / rightRate); // 根据采样率精确计算时间间隔
     }
     function stopTrajectorySampling() {
         if (leftTrajectoryTimer) { clearInterval(leftTrajectoryTimer); leftTrajectoryTimer = null; }
@@ -1278,26 +1293,37 @@ function setupDeadzoneTest() {
             deadzoneStatus.style.color = '#FF5252';
             return;
         }
-        
+
         deadzoneTestActive = true;
         deadzoneStatus.textContent = '测试中...';
         deadzoneStatus.style.color = '#FFFFFF';
-        
+
         // 初始化画布
         leftCtx.clearRect(0, 0, leftStickCanvas.width, leftStickCanvas.height);
         rightCtx.clearRect(0, 0, rightStickCanvas.width, rightStickCanvas.height);
         leftTrajectoryCtx.clearRect(0, 0, leftTrajectoryCanvas.width, leftTrajectoryCanvas.height);
         rightTrajectoryCtx.clearRect(0, 0, rightTrajectoryCanvas.width, rightTrajectoryCanvas.height);
-        
+
         // 开始轨迹采样
         startTrajectorySampling();
-        
+
         // 开始更新
         updateDeadzoneTest();
+
+        // 如果十字键测试正在运行，则停止它
+        if (dpadTestActive) {
+            dpadTestActive = false;
+            if (dpadAnimationId) {
+                cancelAnimationFrame(dpadAnimationId);
+                dpadAnimationId = null;
+            }
+            const dpadInfo = document.getElementById('dpadInfo');
+            if (dpadInfo) {
+                dpadInfo.textContent = '测试已停止';
+            }
+        }
     });
 
-// 此处多余的 if 语句块已删除，修复了函数结构和大括号闭合问题。
-    
     // 停止测试按钮
     stopDeadzoneTest.addEventListener('click', () => {
         deadzoneTestActive = false;
@@ -1507,56 +1533,257 @@ function setupDpadTest() {
     // 获取十字键方向
     function getDpadDirection() {
         if (!gamepad) return 'none';
-        
-        const up = gamepad.buttons[12].pressed;
-        const down = gamepad.buttons[13].pressed;
-        const left = gamepad.buttons[14].pressed;
-        const right = gamepad.buttons[15].pressed;
-        
-        if (up && right) return 'upright';
-        if (down && right) return 'downright';
-        if (down && left) return 'downleft';
-        if (up && left) return 'upleft';
-        if (up) return 'up';
-        if (right) return 'right';
-        if (down) return 'down';
-        if (left) return 'left';
-        
-        return 'none';
+
+        const dpadUp = gamepad.buttons[12];
+        const dpadDown = gamepad.buttons[13];
+        const dpadLeft = gamepad.buttons[14];
+        const dpadRight = gamepad.buttons[15];
+
+        const up = dpadUp && dpadUp.pressed;
+        const down = dpadDown && dpadDown.pressed;
+        const left = dpadLeft && dpadLeft.pressed;
+        const right = dpadRight && dpadRight.pressed;
+
+        // 检测八个方向
+        if (up && right) return '右上';
+        if (down && right) return '右下';
+        if (down && left) return '左下';
+        if (up && left) return '左上';
+        if (up) return '上';
+        if (right) return '右';
+        if (down) return '下';
+        if (left) return '左';
+
+        return 'none'; // 无按键按下
     }
     
     // 更新十字键测试
     function updateDpadTest() {
         if (!gamepad || !dpadTestActive) return;
-        
+
         // 获取最新的手柄状态
         gamepad = navigator.getGamepads()[gamepadIndex];
-        
+
         if (gamepad) {
             const direction = getDpadDirection();
-            drawDpadDirection(direction);
-            
+            updateDpadTestDisplay(direction);
+
             // 更新方向信息
             if (direction === 'none') {
                 dpadInfo.textContent = '方向: 无';
-            } else {
-                const directionMap = {
-                    'up': '上',
-                    'upright': '右上',
-                    'right': '右',
-                    'downright': '右下',
-                    'down': '下',
-                    'downleft': '左下',
-                    'left': '左',
-                    'upleft': '左上'
-                };
                 
-                dpadInfo.textContent = `方向: ${directionMap[direction]}`;
+                // 仅当检测到从按下到释放的变化时，才允许下一次记录
+                if (dpadPressed) {
+                    dpadPressed = false;
+                }
+            } else {
+                dpadInfo.textContent = `方向: ${direction}`;
+
+                // 如果方向改变或者这是第一次按下，则记录
+                if (direction !== lastDpadDirection || !dpadPressed) {
+                    recordDpadPress(direction);
+                    dpadPressed = true;
+                }
+
+                // 更新最后的方向
+                lastDpadDirection = direction;
             }
         }
-        
+
         dpadAnimationId = requestAnimationFrame(updateDpadTest);
     }
+    
+    // 在updateStatus函数中添加以下代码
+    const originalUpdateStatus = window.updateStatus;
+    window.updateStatus = function() {
+      originalUpdateStatus();
+      
+      // 添加十字键测试更新
+      if (dpadTestActive) {
+        updateDpadTest();
+      }
+    };
+}
+
+// 十字键八向测试功能 - 开始
+let dpadPressed = false;
+let lastDpadDirection = 'none';
+
+// 检测十字键方向
+function getDpadDirection() {
+  if (!gamepad) return 'none';
+  
+  const dpadUp = gamepad.buttons[12];
+  const dpadDown = gamepad.buttons[13];
+  const dpadLeft = gamepad.buttons[14];
+  const dpadRight = gamepad.buttons[15];
+  
+  const up = dpadUp && dpadUp.pressed;
+  const down = dpadDown && dpadDown.pressed;
+  const left = dpadLeft && dpadLeft.pressed;
+  const right = dpadRight && dpadRight.pressed;
+
+  // 检测八个方向
+
+
+  if (up && right) return '右上';
+  if (up && left) return '左上';
+  if (down && right) return '右下';
+  if (down && left) return '左下';
+  if (up) return '上';
+  if (right) return '右';
+  if (down) return '下';
+  if (left) return '左';
+  
+  return 'none'; // 无按键按下
+}
+
+// 记录十字键按下历史
+function recordDpadPress(direction) {
+  const timestamp = new Date().toLocaleTimeString();
+  dpadHistory.push({ direction, timestamp });
+  
+  // 更新历史记录显示
+  const historyList = document.getElementById('dpadHistoryList');
+  if (historyList) {
+    const li = document.createElement('li');
+    li.textContent = `${timestamp} - ${direction}`;
+    li.style.padding = '5px';
+    li.style.borderBottom = '1px solid rgba(255, 255, 255, 0.1)';
+    li.style.color = '#fff';
+    historyList.appendChild(li);
+    
+    // 保持最多显示20条记录
+    while (historyList.children.length > 20) {
+      historyList.removeChild(historyList.firstChild);
+    }
+    
+    // 自动滚动到底部
+    historyList.scrollTop = historyList.scrollHeight;
+  }
+}
+
+// 更新十字键测试显示
+function updateDpadTestDisplay(direction) {
+  const dpadCanvas = document.getElementById('dpadCanvas');
+  if (!dpadCanvas) return;
+  
+  const ctx = dpadCanvas.getContext('2d');
+  const width = dpadCanvas.width;
+  const height = dpadCanvas.height;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  
+  // 清除画布
+  ctx.clearRect(0, 0, width, height);
+  
+  // 绘制背景圆
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, width/2 - 10, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // 绘制八个方向区域
+  const directions = [
+       'right', 'downright', 
+      'down', 'downleft', 'left', 'upleft'
+      ,'up', 'upright'
+  ];
+  
+  for (let i = 0; i < 8; i++) {
+    const angle = i * Math.PI / 4;
+    const startAngle = angle - Math.PI / 8;
+    const endAngle = angle + Math.PI / 8;
+    
+    ctx.fillStyle = directions[i] === direction ? '#4CAF50' : '#555';
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.arc(centerX, centerY, width/2 - 20, startAngle, endAngle);
+    ctx.closePath();
+    ctx.fill();
+    
+    // 绘制方向标签
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    const labelRadius = width/2 - 40;
+    const labelX = centerX + Math.sin(angle) * labelRadius;
+    const labelY = centerY - Math.cos(angle) * labelRadius;
+    
+    let label;
+    switch(directions[i]) {
+      case 'up': label = '↑'; break;
+      case 'upright': label = '↗'; break;
+      case 'right': label = '→'; break;
+      case 'downright': label = '↘'; break;
+      case 'down': label = '↓'; break;
+      case 'downleft': label = '↙'; break;
+      case 'left': label = '←'; break;
+      case 'upleft': label = '↖'; break;
+      default: label = '';
+    }
+    
+    ctx.fillText(label, labelX, labelY);
+  }
+  
+  // 绘制中心点
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// 更新十字键测试
+function updateDpadTest() {
+  if (!gamepad || !dpadTestActive) return;
+  
+  // 获取最新的手柄状态
+  gamepad = navigator.getGamepads()[gamepadIndex];
+  
+  if (gamepad) {
+    const direction = getDpadDirection();
+    updateDpadTestDisplay(direction);
+    
+    // 更新方向信息
+    if (direction === 'none') {
+      dpadInfo.textContent = '方向: 无';
+    } else {
+      dpadInfo.textContent = `方向: ${direction}`;
+      
+      // 如果方向改变或者这是第一次按下，则记录
+      if (direction !== lastDpadDirection && !dpadPressed) {
+        recordDpadPress(direction);
+        dpadPressed = true;
+      }
+      
+      // 更新最后的方向
+      lastDpadDirection = direction;
+    }
+    
+    // 检测是否松开按键
+    if (direction === 'none') {
+      dpadPressed = false;
+    }
+  }
+  
+  dpadAnimationId = requestAnimationFrame(updateDpadTest);
+}
+
+// 在updateStatus函数中添加以下代码
+const originalUpdateStatus = window.updateStatus;
+window.updateStatus = function() {
+  originalUpdateStatus();
+  
+  // 添加十字键测试更新
+  if (dpadTestActive) {
+    updateDpadTest();
+  }
+};
+// 十字键八向测试功能 - 结束
+
+    
     
     // 开始测试按钮
     startDpadTest.addEventListener('click', () => {
@@ -1566,6 +1793,11 @@ function setupDpadTest() {
         }
         
         dpadTestActive = true;
+        dpadHistory = [];
+        const historyList = document.getElementById('dpadHistoryList');
+        if (historyList) {
+            historyList.innerHTML = '';
+        }
         drawDpadDirection('none');
         updateDpadTest();
     });
@@ -1579,7 +1811,16 @@ function setupDpadTest() {
         }
         dpadInfo.textContent = '测试已停止';
     });
-}
+
+    // 清除历史记录按钮
+    document.getElementById('clearDpadHistory')?.addEventListener('click', () => {
+        dpadHistory = [];
+        const historyList = document.getElementById('dpadHistoryList');
+        if (historyList) {
+            historyList.innerHTML = '';
+        }
+    });
+
 
 // 手柄连接稳定性测试
 let stabilityTestActive = false;

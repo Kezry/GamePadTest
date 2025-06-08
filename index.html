@@ -494,9 +494,18 @@
                     <button id="startDpadTest">开始测试</button>
                     <button id="stopDpadTest">停止测试</button>
                 </div>
-                <div class="dpad-visualization">
-                    <canvas id="dpadCanvas" width="200" height="200"></canvas>
-                    <div class="dpad-info" id="dpadInfo">方向: 无</div>
+                <div style="display: flex; gap: 20px;">
+                    <div class="dpad-visualization">
+                        <canvas id="dpadCanvas" width="200" height="200"></canvas>
+                        <div class="dpad-info" id="dpadInfo">方向: 无</div>
+                    </div>
+                    <div style="flex: 1; background-color: rgba(0, 0, 0, 0.2); border-radius: 8px; padding: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h4 style="margin: 0;">按键历史记录</h4>
+                            <button id="clearDpadHistory" style="background-color: #444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">清除记录</button>
+                        </div>
+                        <ul id="dpadHistoryList" style="list-style: none; padding: 0; margin: 0; max-height: 150px; overflow-y: auto;"></ul>
+                    </div>
                 </div>
             </div>
             
