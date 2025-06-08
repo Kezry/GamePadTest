@@ -346,6 +346,56 @@
         .sampling-rate input {
             width: 80px;
         }
+        
+        /* 新增全屏相关样式 */
+        .fullscreen-button {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            z-index: 10;
+            background-color: rgba(0, 0, 0, 0.5);
+            border: none;
+            color: white;
+            font-size: 16px;
+            padding: 3px 6px;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .fullscreen-button:hover {
+            background-color: rgba(0, 0, 0, 0.8);
+        }
+        
+        .fullscreen-exit {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 9999;
+            font-size: 18px;
+            padding: 5px 10px;
+            background: rgba(0,0,0,0.7);
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+        }
+        
+        @media (min-aspect-ratio: 4/3) {
+            .fullscreen-element {
+                width: 100vw;
+                height: auto;
+                margin: 0;
+            }
+        }
+        
+        @media (max-aspect-ratio: 4/3) {
+            .fullscreen-element {
+                width: auto;
+                height: 100vh;
+                margin: 0;
+            }
+        }
     </style>
 </head>
 <body>
