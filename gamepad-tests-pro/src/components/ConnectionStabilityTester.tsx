@@ -47,9 +47,11 @@ export const ConnectionStabilityTester = ({ gamepad, gamepadInfo, sampleRate }: 
   const [isInfiniteMode, setIsInfiniteMode] = useState(false);
   const [waitingForPress, setWaitingForPress] = useState(false);
   const [showCompletedResults, setShowCompletedResults] = useState(true);
+  const [connectionLost, setConnectionLost] = useState(false);
 
   const lastUpdateRef = useRef<number>(0);
   const activeButtonsRef = useRef<Map<number, ButtonTestState>>(new Map());
+  const lastUIUpdateRef = useRef<number>(0);
 
   const getButtonName = useCallback((index: number) => {
     const psNames = ['✕', '○', '□', '△', 'L1', 'R1', 'L2', 'R2', 'Share', 'Options', 'L3', 'R3', '↑', '↓', '←', '→', 'PS', 'Touch'];
@@ -93,6 +95,39 @@ export const ConnectionStabilityTester = ({ gamepad, gamepadInfo, sampleRate }: 
     setTestResults([]);
   }, []);
 
+  // Monitor real connection loss via gamepaddisconnected event
+  useEffect(() => {
+    const handleDisconnect = (e: GamepadEvent) => {
+      if (isTesting && gamepad && e.gamepad.index === gamepad.index) {
+        setConnectionLost(true);
+        // Record disconnection as a "disconnect" for all active buttons
+        const currentMap = new Map(activeButtonsRef.current);
+        currentMap.forEach((state, buttonIndex) => {
+          currentMap.set(buttonIndex, {
+            ...state,
+            disconnectCount: state.disconnectCount + 1,
+            wasHeld: false,
+          });
+        });
+        activeButtonsRef.current = currentMap;
+        setActiveButtons(new Map(currentMap));
+      }
+    };
+
+    const handleReconnect = (e: GamepadEvent) => {
+      if (gamepad && e.gamepad.index === gamepad.index) {
+        setConnectionLost(false);
+      }
+    };
+
+    window.addEventListener('gamepaddisconnected', handleDisconnect);
+    window.addEventListener('gamepadconnected', handleReconnect);
+    return () => {
+      window.removeEventListener('gamepaddisconnected', handleDisconnect);
+      window.removeEventListener('gamepadconnected', handleReconnect);
+    };
+  }, [isTesting, gamepad]);
+
   // Monitor button press states during testing
   useEffect(() => {
     if (!gamepad || !isTesting) return;
@@ -103,9 +138,10 @@ export const ConnectionStabilityTester = ({ gamepad, gamepadInfo, sampleRate }: 
     const checkButtons = (timestamp: number) => {
       if (timestamp - lastUpdateRef.current >= interval) {
         lastUpdateRef.current = timestamp;
+        const now = performance.now();
 
         const currentMap = new Map(activeButtonsRef.current);
-        let hasChanges = false;
+        let hasStructuralChange = false;
 
         for (let i = 0; i < gamepad.buttons.length; i++) {
           const isPressed = gamepad.buttons[i]?.pressed;
@@ -116,26 +152,25 @@ export const ConnectionStabilityTester = ({ gamepad, gamepadInfo, sampleRate }: 
               currentMap.set(i, {
                 buttonIndex: i,
                 buttonName: getButtonName(i),
-                startTime: performance.now(),
+                startTime: now,
                 currentHoldTime: 0,
                 disconnectCount: 0,
                 wasHeld: true,
               });
-              hasChanges = true;
+              hasStructuralChange = true;
             } else if (!existingState.wasHeld) {
               currentMap.set(i, {
                 ...existingState,
                 disconnectCount: existingState.disconnectCount + 1,
                 wasHeld: true,
               });
-              hasChanges = true;
+              hasStructuralChange = true;
             } else {
-              const elapsed = (performance.now() - existingState.startTime) / 1000;
+              const elapsed = (now - existingState.startTime) / 1000;
               currentMap.set(i, {
                 ...existingState,
                 currentHoldTime: elapsed,
               });
-              hasChanges = true;
 
               // Auto-complete in finite mode when target reached with no disconnects
               if (!isInfiniteMode && elapsed >= targetDuration && existingState.disconnectCount === 0) {
@@ -149,6 +184,7 @@ export const ConnectionStabilityTester = ({ gamepad, gamepadInfo, sampleRate }: 
                 };
                 setTestResults(prev => [...prev.filter(r => r.buttonIndex !== i), result]);
                 currentMap.delete(i);
+                hasStructuralChange = true;
               }
             }
           } else if (existingState?.wasHeld) {
@@ -156,12 +192,15 @@ export const ConnectionStabilityTester = ({ gamepad, gamepadInfo, sampleRate }: 
               ...existingState,
               wasHeld: false,
             });
-            hasChanges = true;
+            hasStructuralChange = true;
           }
         }
 
-        if (hasChanges) {
-          activeButtonsRef.current = currentMap;
+        activeButtonsRef.current = currentMap;
+
+        // Update UI on structural changes or every 250ms for hold time display
+        if (hasStructuralChange || now - lastUIUpdateRef.current >= 250) {
+          lastUIUpdateRef.current = now;
           setActiveButtons(new Map(currentMap));
         }
       }
@@ -301,6 +340,18 @@ export const ConnectionStabilityTester = ({ gamepad, gamepadInfo, sampleRate }: 
           >
             {t('cancel')}
           </button>
+        </div>
+      )}
+
+      {/* Connection Lost Warning */}
+      {isTesting && connectionLost && (
+        <div className="mb-6 bg-destructive/10 border border-destructive/30 rounded-xl p-4 text-center">
+          <div className="text-sm font-medium text-destructive">
+            {language === 'zh' ? '⚠ 检测到控制器断开连接!' : '⚠ Controller disconnected!'}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {language === 'zh' ? '已记录为断连事件，等待重连...' : 'Recorded as disconnect event, waiting for reconnect...'}
+          </div>
         </div>
       )}
 

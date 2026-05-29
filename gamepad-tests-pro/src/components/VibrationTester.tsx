@@ -578,7 +578,7 @@ const PATTERNS: VibrationPattern[] = [
     { strong: 1.0, weak: 1.0, duration: 100 }, { strong: 0.85, weak: 0.9, duration: 80 }, { strong: 0.65, weak: 0.75, duration: 70 },
     { strong: 0.5, weak: 0.65, duration: 80 }, { strong: 0.7, weak: 0.85, duration: 60 }, { strong: 0.9, weak: 1.0, duration: 90 }
   ]},
-  { id: 'earthquake', nameZh: '地震', icon: AlertTriangle, category: 'fun', sequence: [
+  { id: 'earthquake_fun', nameZh: '地震', icon: AlertTriangle, category: 'fun', sequence: [
     { strong: 0.7, weak: 0.85, duration: 100 }, { strong: 0.9, weak: 1.0, duration: 80 }, { strong: 0.6, weak: 0.75, duration: 120 },
     { strong: 0.85, weak: 0.95, duration: 90 }, { strong: 0.5, weak: 0.7, duration: 150 }, { strong: 0.8, weak: 0.9, duration: 100 },
     { strong: 0.65, weak: 0.8, duration: 110 }, { strong: 0.45, weak: 0.6, duration: 140 }
@@ -1101,7 +1101,7 @@ const PATTERNS: VibrationPattern[] = [
     { strong: 0.75, weak: 0.38, duration: 32 }, { strong: 0.28, weak: 0.16, duration: 35 },
     { strong: 0.72, weak: 0.36, duration: 35 }
   ]},
-  { id: 'shotgun', nameZh: '霰弹枪', icon: Crosshair, category: 'fps', sequence: [
+  { id: 'shotgun_fps', nameZh: '霰弹枪', icon: Crosshair, category: 'fps', sequence: [
     { strong: 1.0, weak: 0.75, duration: 60 }, { strong: 0.9, weak: 0.85, duration: 80 },
     { strong: 0.6, weak: 0.7, duration: 100 }, { strong: 0.35, weak: 0.5, duration: 120 },
     { strong: 0.15, weak: 0.25, duration: 100 }
@@ -1134,7 +1134,7 @@ const PATTERNS: VibrationPattern[] = [
     { strong: 0.85, weak: 0.9, duration: 120 }, { strong: 0.65, weak: 0.75, duration: 100 },
     { strong: 0.45, weak: 0.55, duration: 90 }, { strong: 0.25, weak: 0.35, duration: 80 }
   ]},
-  { id: 'flashbang', nameZh: '闪光弹', icon: Sun, category: 'fps', sequence: [
+  { id: 'flashbang_fps', nameZh: '闪光弹', icon: Sun, category: 'fps', sequence: [
     { strong: 0.8, weak: 0.9, duration: 50 }, { strong: 0.9, weak: 1.0, duration: 60 }, { strong: 0.7, weak: 0.85, duration: 70 },
     { strong: 0.5, weak: 0.65, duration: 80 }, { strong: 0.3, weak: 0.45, duration: 100 }, { strong: 0.15, weak: 0.25, duration: 150 }
   ]},
@@ -1142,7 +1142,7 @@ const PATTERNS: VibrationPattern[] = [
     { strong: 0.25, weak: 0.45, duration: 80 }, { strong: 0.2, weak: 0.4, duration: 90 }, { strong: 0.28, weak: 0.48, duration: 85 },
     { strong: 0.22, weak: 0.42, duration: 95 }
   ]},
-  { id: 'molotov', nameZh: '燃烧瓶', icon: Flame, category: 'fps', sequence: [
+  { id: 'molotov_fps', nameZh: '燃烧瓶', icon: Flame, category: 'fps', sequence: [
     { strong: 0.4, weak: 0.6, duration: 60 }, { strong: 0.55, weak: 0.75, duration: 70 }, { strong: 0.7, weak: 0.85, duration: 80 },
     { strong: 0.85, weak: 0.95, duration: 100 }, { strong: 0.75, weak: 0.9, duration: 90 }, { strong: 0.6, weak: 0.8, duration: 100 },
     { strong: 0.45, weak: 0.65, duration: 90 }

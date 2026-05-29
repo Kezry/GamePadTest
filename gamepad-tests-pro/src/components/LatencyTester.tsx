@@ -127,8 +127,8 @@ export const LatencyTester = ({ gamepad, activeGamepad, sampleRate }: LatencyTes
         if (lastPollTimeRef.current > 0) {
           const interval = now - lastPollTimeRef.current;
 
-          // Reject obvious garbage (negative or > 200ms)
-          if (interval > 0 && interval < 200) {
+          // Reject obvious garbage (negative or > 500ms)
+          if (interval > 0 && interval < 500) {
             rawIntervalsRef.current.push(interval);
             if (rawIntervalsRef.current.length > WINDOW_SIZE) {
               rawIntervalsRef.current = rawIntervalsRef.current.slice(-WINDOW_SIZE);

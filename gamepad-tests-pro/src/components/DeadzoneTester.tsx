@@ -66,11 +66,31 @@ export const DeadzoneTester = ({ gamepad, sampleRate }: DeadzoneTesterProps) => 
   const canvasLogicalSize = 280;
   const canvasPhysicalSize = canvasLogicalSize * dpr;
 
+  // Refs for RAF loop data (avoids stale closures and unnecessary re-renders)
+  const leftDataRef = useRef<DeadzoneData>({
+    minX: 0, maxX: 0, minY: 0, maxY: 0, samples: [],
+    avgDrift: 0, maxDrift: 0, driftDirection: 0, stability: 100,
+    responseTime: 0, returnTime: 0, circularError: 0
+  });
+  const rightDataRef = useRef<DeadzoneData>({
+    minX: 0, maxX: 0, minY: 0, maxY: 0, samples: [],
+    avgDrift: 0, maxDrift: 0, driftDirection: 0, stability: 100,
+    responseTime: 0, returnTime: 0, circularError: 0
+  });
+  const advancedStatsRef = useRef<AdvancedStats>({
+    totalSamples: 0, testDuration: 0, jitterCount: 0, deadzoneCoverage: 0, linearityScore: 100
+  });
+  const lastUIUpdateRef = useRef<number>(0);
+
   const reset = () => {
-    setLeftData({ minX: 0, maxX: 0, minY: 0, maxY: 0, samples: [], avgDrift: 0, maxDrift: 0, driftDirection: 0, stability: 100, responseTime: 0, returnTime: 0, circularError: 0 });
-    setRightData({ minX: 0, maxX: 0, minY: 0, maxY: 0, samples: [], avgDrift: 0, maxDrift: 0, driftDirection: 0, stability: 100, responseTime: 0, returnTime: 0, circularError: 0 });
+    const emptyData: DeadzoneData = { minX: 0, maxX: 0, minY: 0, maxY: 0, samples: [], avgDrift: 0, maxDrift: 0, driftDirection: 0, stability: 100, responseTime: 0, returnTime: 0, circularError: 0 };
+    setLeftData(emptyData);
+    setRightData(emptyData);
+    leftDataRef.current = { ...emptyData };
+    rightDataRef.current = { ...emptyData };
     setSuggestedDeadzone({ left: 0.05, right: 0.05 });
     setAdvancedStats({ totalSamples: 0, testDuration: 0, jitterCount: 0, deadzoneCoverage: 0, linearityScore: 100 });
+    advancedStatsRef.current = { totalSamples: 0, testDuration: 0, jitterCount: 0, deadzoneCoverage: 0, linearityScore: 100 };
     testStartRef.current = Date.now();
     lastDeflectionRef.current = { left: 0, right: 0 };
     responseStartRef.current = { left: null, right: null };
@@ -78,23 +98,31 @@ export const DeadzoneTester = ({ gamepad, sampleRate }: DeadzoneTesterProps) => 
 
   // Sample joystick data using requestAnimationFrame for smoothness
   const lastSampleRef = useRef<number>(0);
-  
+  const sampleRateRef = useRef(sampleRate);
+  const gamepadRef = useRef(gamepad);
+  sampleRateRef.current = sampleRate;
+  gamepadRef.current = gamepad;
+
   useEffect(() => {
     if (!gamepad) return;
 
     const interval = 1000 / sampleRate;
     let animationId: number;
-    
+
     const sample = (timestamp: number) => {
       if (timestamp - lastSampleRef.current >= interval) {
         lastSampleRef.current = timestamp;
         const now = Date.now();
-        
-        const lx = gamepad.axes[0] || 0;
-        const ly = gamepad.axes[1] || 0;
-        const rx = gamepad.axes[2] || 0;
-        const ry = gamepad.axes[3] || 0;
-        
+        const currentSampleRate = sampleRateRef.current;
+
+        const gp = gamepadRef.current;
+        if (!gp) { animationId = requestAnimationFrame(sample); return; }
+
+        const lx = gp.axes[0] || 0;
+        const ly = gp.axes[1] || 0;
+        const rx = gp.axes[2] || 0;
+        const ry = gp.axes[3] || 0;
+
         const lMag = Math.sqrt(lx * lx + ly * ly);
         const rMag = Math.sqrt(rx * rx + ry * ry);
 
@@ -106,119 +134,80 @@ export const DeadzoneTester = ({ gamepad, sampleRate }: DeadzoneTesterProps) => 
           responseStartRef.current.right = now;
         }
 
-        setLeftData(prev => {
-          const maxSamples = Math.min(2000, sampleRate * 3);
-          const newSamples = [...prev.samples.slice(-maxSamples), { x: lx, y: ly, timestamp: now }];
-          
-          // Calculate advanced metrics
-          const drifts = newSamples.filter(s => Math.sqrt(s.x * s.x + s.y * s.y) < 0.15)
-            .map(s => Math.sqrt(s.x * s.x + s.y * s.y));
-          const avgDrift = drifts.length > 0 ? drifts.reduce((a, b) => a + b, 0) / drifts.length : 0;
-          const maxDrift = Math.max(Math.abs(prev.minX), Math.abs(prev.maxX), Math.abs(prev.minY), Math.abs(prev.maxY));
-          const driftDirection = Math.atan2(
-            newSamples.slice(-20).reduce((a, s) => a + s.y, 0) / 20,
-            newSamples.slice(-20).reduce((a, s) => a + s.x, 0) / 20
-          ) * (180 / Math.PI);
-          
-          // Calculate stability (less variance = higher stability)
-          const recentSamples = newSamples.slice(-50);
-          const variance = recentSamples.length > 1 ? 
-            recentSamples.reduce((acc, s, i) => {
-              if (i === 0) return 0;
-              const prev = recentSamples[i - 1];
-              return acc + Math.sqrt(Math.pow(s.x - prev.x, 2) + Math.pow(s.y - prev.y, 2));
-            }, 0) / recentSamples.length : 0;
-          const stability = Math.max(0, Math.min(100, 100 - variance * 500));
-          
-          // Circular error at full deflection
-          const fullDeflectionSamples = newSamples.filter(s => Math.sqrt(s.x * s.x + s.y * s.y) > 0.9);
-          const circularError = fullDeflectionSamples.length > 0 ?
-            fullDeflectionSamples.reduce((acc, s) => {
-              const mag = Math.sqrt(s.x * s.x + s.y * s.y);
-              return acc + Math.abs(mag - 1);
-            }, 0) / fullDeflectionSamples.length * 100 : 0;
-          
-          const suggested = maxDrift * 1.2;
-          setSuggestedDeadzone(s => ({ ...s, left: Math.max(0.02, Math.min(suggested, 0.3)) }));
-          
-          return {
-            minX: Math.min(prev.minX, lx),
-            maxX: Math.max(prev.maxX, lx),
-            minY: Math.min(prev.minY, ly),
-            maxY: Math.max(prev.maxY, ly),
-            samples: newSamples,
-            avgDrift, maxDrift, driftDirection, stability,
-            responseTime: responseStartRef.current.left ? now - responseStartRef.current.left : 0,
-            returnTime: prev.returnTime,
-            circularError,
-          };
-        });
+        // Update left data in ref
+        const lPrev = leftDataRef.current;
+        const maxSamples = Math.min(2000, currentSampleRate * 3);
+        const lSamples = [...lPrev.samples.slice(-maxSamples), { x: lx, y: ly, timestamp: now }];
+        const lDrifts = lSamples.filter(s => Math.sqrt(s.x * s.x + s.y * s.y) < 0.15).map(s => Math.sqrt(s.x * s.x + s.y * s.y));
+        const lAvgDrift = lDrifts.length > 0 ? lDrifts.reduce((a, b) => a + b, 0) / lDrifts.length : 0;
+        const lMaxDrift = Math.max(Math.abs(lPrev.minX), Math.abs(lPrev.maxX), Math.abs(lPrev.minY), Math.abs(lPrev.maxY));
+        const lDriftDir = Math.atan2(lSamples.slice(-20).reduce((a, s) => a + s.y, 0) / 20, lSamples.slice(-20).reduce((a, s) => a + s.x, 0) / 20) * (180 / Math.PI);
+        const lRecent = lSamples.slice(-50);
+        const lVariance = lRecent.length > 1 ? lRecent.reduce((acc, s, i) => i === 0 ? 0 : acc + Math.sqrt(Math.pow(s.x - lRecent[i-1].x, 2) + Math.pow(s.y - lRecent[i-1].y, 2)), 0) / lRecent.length : 0;
+        const lStability = Math.max(0, Math.min(100, 100 - lVariance * 500));
+        const lFullDefl = lSamples.filter(s => Math.sqrt(s.x * s.x + s.y * s.y) > 0.9);
+        const lCircErr = lFullDefl.length > 0 ? lFullDefl.reduce((acc, s) => acc + Math.abs(Math.sqrt(s.x * s.x + s.y * s.y) - 1), 0) / lFullDefl.length * 100 : 0;
+        const lSuggested = lMaxDrift * 1.2;
 
-        setRightData(prev => {
-          const maxSamples = Math.min(2000, sampleRate * 3);
-          const newSamples = [...prev.samples.slice(-maxSamples), { x: rx, y: ry, timestamp: now }];
-          
-          const drifts = newSamples.filter(s => Math.sqrt(s.x * s.x + s.y * s.y) < 0.15)
-            .map(s => Math.sqrt(s.x * s.x + s.y * s.y));
-          const avgDrift = drifts.length > 0 ? drifts.reduce((a, b) => a + b, 0) / drifts.length : 0;
-          const maxDrift = Math.max(Math.abs(prev.minX), Math.abs(prev.maxX), Math.abs(prev.minY), Math.abs(prev.maxY));
-          const driftDirection = Math.atan2(
-            newSamples.slice(-20).reduce((a, s) => a + s.y, 0) / 20,
-            newSamples.slice(-20).reduce((a, s) => a + s.x, 0) / 20
-          ) * (180 / Math.PI);
-          
-          const recentSamples = newSamples.slice(-50);
-          const variance = recentSamples.length > 1 ? 
-            recentSamples.reduce((acc, s, i) => {
-              if (i === 0) return 0;
-              const prevS = recentSamples[i - 1];
-              return acc + Math.sqrt(Math.pow(s.x - prevS.x, 2) + Math.pow(s.y - prevS.y, 2));
-            }, 0) / recentSamples.length : 0;
-          const stability = Math.max(0, Math.min(100, 100 - variance * 500));
-          
-          const fullDeflectionSamples = newSamples.filter(s => Math.sqrt(s.x * s.x + s.y * s.y) > 0.9);
-          const circularError = fullDeflectionSamples.length > 0 ?
-            fullDeflectionSamples.reduce((acc, s) => {
-              const mag = Math.sqrt(s.x * s.x + s.y * s.y);
-              return acc + Math.abs(mag - 1);
-            }, 0) / fullDeflectionSamples.length * 100 : 0;
-          
-          const suggested = maxDrift * 1.2;
-          setSuggestedDeadzone(s => ({ ...s, right: Math.max(0.02, Math.min(suggested, 0.3)) }));
-          
-          return {
-            minX: Math.min(prev.minX, rx),
-            maxX: Math.max(prev.maxX, rx),
-            minY: Math.min(prev.minY, ry),
-            maxY: Math.max(prev.maxY, ry),
-            samples: newSamples,
-            avgDrift, maxDrift, driftDirection, stability,
-            responseTime: responseStartRef.current.right ? now - responseStartRef.current.right : 0,
-            returnTime: prev.returnTime,
-            circularError,
-          };
-        });
+        leftDataRef.current = {
+          minX: Math.min(lPrev.minX, lx), maxX: Math.max(lPrev.maxX, lx),
+          minY: Math.min(lPrev.minY, ly), maxY: Math.max(lPrev.maxY, ly),
+          samples: lSamples, avgDrift: lAvgDrift, maxDrift: lMaxDrift, driftDirection: lDriftDir,
+          stability: lStability, responseTime: responseStartRef.current.left ? now - responseStartRef.current.left : 0,
+          returnTime: lPrev.returnTime, circularError: lCircErr,
+        };
 
-        // Update advanced stats
-        const maxSamplesForStats = Math.min(2000, sampleRate * 3);
-        setAdvancedStats(prev => ({
-          totalSamples: prev.totalSamples + 1,
+        // Update right data in ref
+        const rPrev = rightDataRef.current;
+        const rSamples = [...rPrev.samples.slice(-maxSamples), { x: rx, y: ry, timestamp: now }];
+        const rDrifts = rSamples.filter(s => Math.sqrt(s.x * s.x + s.y * s.y) < 0.15).map(s => Math.sqrt(s.x * s.x + s.y * s.y));
+        const rAvgDrift = rDrifts.length > 0 ? rDrifts.reduce((a, b) => a + b, 0) / rDrifts.length : 0;
+        const rMaxDrift = Math.max(Math.abs(rPrev.minX), Math.abs(rPrev.maxX), Math.abs(rPrev.minY), Math.abs(rPrev.maxY));
+        const rDriftDir = Math.atan2(rSamples.slice(-20).reduce((a, s) => a + s.y, 0) / 20, rSamples.slice(-20).reduce((a, s) => a + s.x, 0) / 20) * (180 / Math.PI);
+        const rRecent = rSamples.slice(-50);
+        const rVariance = rRecent.length > 1 ? rRecent.reduce((acc, s, i) => i === 0 ? 0 : acc + Math.sqrt(Math.pow(s.x - rRecent[i-1].x, 2) + Math.pow(s.y - rRecent[i-1].y, 2)), 0) / rRecent.length : 0;
+        const rStability = Math.max(0, Math.min(100, 100 - rVariance * 500));
+        const rFullDefl = rSamples.filter(s => Math.sqrt(s.x * s.x + s.y * s.y) > 0.9);
+        const rCircErr = rFullDefl.length > 0 ? rFullDefl.reduce((acc, s) => acc + Math.abs(Math.sqrt(s.x * s.x + s.y * s.y) - 1), 0) / rFullDefl.length * 100 : 0;
+        const rSuggested = rMaxDrift * 1.2;
+
+        rightDataRef.current = {
+          minX: Math.min(rPrev.minX, rx), maxX: Math.max(rPrev.maxX, rx),
+          minY: Math.min(rPrev.minY, ry), maxY: Math.max(rPrev.maxY, ry),
+          samples: rSamples, avgDrift: rAvgDrift, maxDrift: rMaxDrift, driftDirection: rDriftDir,
+          stability: rStability, responseTime: responseStartRef.current.right ? now - responseStartRef.current.right : 0,
+          returnTime: rPrev.returnTime, circularError: rCircErr,
+        };
+
+        // Update advanced stats in ref
+        const aPrev = advancedStatsRef.current;
+        advancedStatsRef.current = {
+          totalSamples: aPrev.totalSamples + 1,
           testDuration: (now - testStartRef.current) / 1000,
-          jitterCount: prev.jitterCount + (Math.abs(lMag - lastDeflectionRef.current.left) > 0.1 ? 1 : 0),
-          deadzoneCoverage: ((leftData.samples.length + rightData.samples.length) / (maxSamplesForStats * 2)) * 100,
-          linearityScore: Math.max(0, 100 - (leftData.circularError + rightData.circularError) / 2),
-        }));
+          jitterCount: aPrev.jitterCount + (Math.abs(lMag - lastDeflectionRef.current.left) > 0.1 ? 1 : 0),
+          deadzoneCoverage: ((lSamples.length + rSamples.length) / (maxSamples * 2)) * 100,
+          linearityScore: Math.max(0, 100 - (lCircErr + rCircErr) / 2),
+        };
 
         lastDeflectionRef.current = { left: lMag, right: rMag };
+
+        // Throttle UI state updates to 10fps (every 100ms)
+        if (now - lastUIUpdateRef.current >= 100) {
+          lastUIUpdateRef.current = now;
+          setLeftData({ ...leftDataRef.current });
+          setRightData({ ...rightDataRef.current });
+          setSuggestedDeadzone({ left: Math.max(0.02, Math.min(lSuggested, 0.3)), right: Math.max(0.02, Math.min(rSuggested, 0.3)) });
+          setAdvancedStats({ ...advancedStatsRef.current });
+        }
       }
-      
+
       animationId = requestAnimationFrame(sample);
     };
-    
+
     animationId = requestAnimationFrame(sample);
 
     return () => cancelAnimationFrame(animationId);
-  }, [gamepad, sampleRate, leftData.samples.length, rightData.samples.length, leftData.circularError, rightData.circularError]);
+  }, [gamepad, sampleRate]);
 
   // Draw deadzone visualization with high DPI support
   const drawDeadzoneMap = useCallback((
