@@ -15,6 +15,9 @@ add_executable(gamepad-test-client
 target_include_directories(gamepad-test-client PRIVATE src)
 
 if(WIN32)
+    # Enable Unicode for Win32 API (fixes IDC_ARROW/IDI_APPLICATION type mismatch)
+    target_compile_definitions(gamepad-test-client PRIVATE UNICODE _UNICODE)
+
     target_link_libraries(gamepad-test-client PRIVATE
         setupapi
         hid
@@ -23,8 +26,7 @@ if(WIN32)
         gdi32
         comctl32
     )
-    # Windows subsystem for GUI mode, console subsystem for --console mode
-    # Default to console so both modes work
+    # Console subsystem so both GUI and --console modes work
     set_target_properties(gamepad-test-client PROPERTIES
         WIN32_EXECUTABLE OFF
     )
