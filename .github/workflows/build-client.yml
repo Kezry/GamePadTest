@@ -37,22 +37,13 @@ jobs:
           mingw-w64-x86_64-gcc
           mingw-w64-x86_64-cmake
           mingw-w64-x86_64-ninja
-          mingw-w64-x86_64-hidapi
           git
           make
-
-    - name: Setup ImGui
-      working-directory: gamepad-tests-client
-      run: |
-        if [ ! -d "external/imgui" ]; then
-          mkdir -p external
-          git clone --depth 1 --branch docking https://github.com/ocornut/imgui.git external/imgui
-        fi
 
     - name: Configure CMake
       working-directory: gamepad-tests-client
       run: |
-        mkdir build
+        mkdir -p build
         cd build
         cmake .. -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
@@ -74,72 +65,8 @@ jobs:
         path: artifact/gamepad-test-client.exe
         retention-days: 90
 
-    - name: Upload to workflow storage
-      uses: actions/upload-artifact@v4
-      with:
-        name: binary-windows
-        path: artifact/gamepad-test-client.exe
-        retention-days: 7
-        if-no-files-found: error
-
-  build-ubuntu:
-    runs-on: ubuntu-22.04
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          cmake \
-          ninja-build \
-          git \
-          libhidapi-dev \
-          libx11-dev \
-          libxcursor-dev \
-          libxinerama-dev \
-          libxi-dev \
-          libgl1-mesa-dev \
-          libglu1-mesa-dev
-
-    - name: Setup ImGui
-      working-directory: gamepad-tests-client
-      run: |
-        if [ ! -d "external/imgui" ]; then
-          mkdir -p external
-          git clone --depth 1 --branch docking https://github.com/ocornut/imgui.git external/imgui
-        fi
-
-    - name: Configure CMake
-      working-directory: gamepad-tests-client
-      run: |
-        mkdir build
-        cd build
-        cmake .. -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
-
-    - name: Build
-      working-directory: gamepad-tests-client
-      run: |
-        cd build
-        ninja
-
-    - name: Prepare artifact
-      run: |
-        mkdir -p artifact
-        cp gamepad-tests-client/build/gamepad-test-client artifact/
-
-    - name: Upload Linux binary
-      uses: actions/upload-artifact@v4
-      with:
-        name: gamepad-test-client-ubuntu-x64
-        path: artifact/gamepad-test-client
-        retention-days: 90
-
   create-release:
-    needs: [build-windows, build-ubuntu]
+    needs: [build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 
@@ -161,16 +88,9 @@ jobs:
     - name: Create release archives
       run: |
         cd artifacts
-        # Windows
         if [ -d "gamepad-test-client-windows-x64" ]; then
           cd gamepad-test-client-windows-x64
           zip -r ../../gamepad-test-client-windows-x64.zip gamepad-test-client.exe
-          cd ..
-        fi
-        # Linux
-        if [ -d "gamepad-test-client-ubuntu-x64" ]; then
-          cd gamepad-test-client-ubuntu-x64
-          tar czf ../../gamepad-test-client-ubuntu-x64.tar.gz gamepad-test-client
           cd ..
         fi
 
@@ -182,7 +102,6 @@ jobs:
         echo "### Downloads" >> release_notes.md
         echo "" >> release_notes.md
         echo "- **Windows**: gamepad-test-client-windows-x64.zip" >> release_notes.md
-        echo "- **Linux**: gamepad-test-client-ubuntu-x64.tar.gz" >> release_notes.md
         echo "" >> release_notes.md
         echo "### Changes" >> release_notes.md
         git log --pretty="- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> release_notes.md || true
@@ -192,7 +111,6 @@ jobs:
       with:
         files: |
           gamepad-test-client-windows-x64.zip
-          gamepad-test-client-ubuntu-x64.tar.gz
         body_path: release_notes.md
         draft: false
         prerelease: false
